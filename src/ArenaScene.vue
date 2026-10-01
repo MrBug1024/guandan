@@ -410,9 +410,9 @@ onMounted(() => {
     // Cardinal seat orientations: near player faces away from us; side players face inward.
     const positions: [[number, number, number], number][] = [
       [[0, 0, 3.88], Math.PI],
-      [[-4.40, 0, 0], Math.PI / 2],
+      [[-4.4, 0, 0], Math.PI / 2],
       [[0, 0, -3.88], 0],
-      [[4.40, 0, 0], -Math.PI / 2],
+      [[4.4, 0, 0], -Math.PI / 2],
     ];
     for (let i = 0; i < 4; i++) {
       const [position, yaw] = positions[i],
@@ -534,19 +534,25 @@ onMounted(() => {
       const { width, height } = host.value!.getBoundingClientRect();
       renderer!.setSize(width, height);
       camera.aspect = width / height;
-      camera.zoom = Math.min(1, camera.aspect / 1.45);
+      const compact = width <= 700;
+      camera.position.set(0.15, compact ? 9.1 : 7.7, compact ? 9.0 : 11.7);
+      camera.lookAt(0, compact ? 1.2 : 1.1, compact ? 0.5 : 0.2);
+      camera.zoom = Math.min(1, camera.aspect / (compact ? 1.32 : 1.45));
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
       scene.updateMatrixWorld(true);
       const bounds = host.value!.getBoundingClientRect();
       const parent = host.value!.parentElement!.getBoundingClientRect();
-      emit('anchors', actors.map(({ root }) => {
-        const point = root.localToWorld(new THREE.Vector3(0, 1.05, 0)).project(camera);
-        return {
-          x: bounds.left - parent.left + (point.x + 1) * width / 2,
-          y: bounds.top - parent.top + (1 - point.y) * height / 2,
-        };
-      }));
+      emit(
+        'anchors',
+        actors.map(({ root }) => {
+          const point = root.localToWorld(new THREE.Vector3(0, 1.05, 0)).project(camera);
+          return {
+            x: bounds.left - parent.left + ((point.x + 1) * width) / 2,
+            y: bounds.top - parent.top + ((1 - point.y) * height) / 2,
+          };
+        }),
+      );
     };
     observer = new ResizeObserver(resize);
     observer.observe(host.value!);

@@ -6,7 +6,8 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { defaults, decide, heuristic } from './agents.js';
 import { applyMove, legalMoves, newGame, nextRound } from './rules.js';
-import { publicState } from './public-state.js';
+import { publicState, safeAgent } from './public-state.js';
+import { createAccess } from './access.js';
 import {
   gameFrame,
   type AgentConfig,
@@ -15,21 +16,33 @@ import {
   type PublicGame,
 } from '../shared/types.js';
 const app = express();
+app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(express.json({ limit: '64kb' }));
 await mkdir('data/replays', { recursive: true });
+const access = await createAccess();
 let delayMs = 1800,
   autoNext = true;
+let narration: {
+  engine: 'browser' | 'api';
+  baseUrl: string;
+  model: string;
+  voice: string;
+  apiKey?: string;
+} = { engine: 'browser', baseUrl: 'https://model.rhzy.ai/v1', model: 'tts-1', voice: 'alloy' };
 let agents: AgentConfig[] = structuredClone(defaults);
 try {
-  const saved = JSON.parse(await readFile('data/agents.json', 'utf8'));
+  const saved = access.decrypt(JSON.parse(await readFile('data/agents.json', 'utf8')));
   agents = Array.isArray(saved) ? saved : saved.agents;
   if (!Array.isArray(agents) || agents.length !== 4) agents = structuredClone(defaults);
   if (!Array.isArray(saved)) {
     delayMs = saved.delayMs ?? 1800;
     autoNext = saved.autoNext ?? true;
+    if (saved.narration) narration = saved.narration;
   }
-} catch {}
+} catch (error: any) {
+  if (error.code !== 'ENOENT') throw Error('模型配置读取失败，请检查管理员数据与配置备份是否配套');
+}
 let game = newGame(),
   thinking: number | null = null,
   busy = false,
@@ -41,7 +54,7 @@ function replayData() {
   return {
     version: 1,
     rules: 'arena-v2',
-    agents,
+    agents: agents.map(safeAgent),
     initial: roundInitial,
     game: { ...game, history: game.history.slice(roundOffset) },
   };
@@ -54,7 +67,14 @@ function rememberRound() {
 const clients = new Set<express.Response>();
 let presentation = { speech: false, showFeed: false };
 function snapshot(): PublicGame {
-  return { ...publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt }), presentation };
+  return {
+    ...publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt }),
+    presentation,
+    narration: {
+      engine: narration.engine,
+      ready: narration.engine === 'browser' || Boolean(narration.apiKey),
+    },
+  };
 }
 function broadcast() {
   const data = `data: ${JSON.stringify(snapshot())}\n\n`;
@@ -128,18 +148,23 @@ async function step() {
     });
     if (['round-over', 'match-over'].includes(game.status)) await archive();
   } finally {
-    busy = false;
-    thinking = null;
-    broadcast();
+    if (generation === epoch) {
+      busy = false;
+      thinking = null;
+      broadcast();
+    }
   }
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
 function schedule() {
   clearTimeout(timer);
+  const generation = epoch;
   timer = setTimeout(
     async () => {
+      if (generation !== epoch) return;
       try {
         if (game.status === 'running') await step();
+        if (generation !== epoch) return;
         if (
           autoNext &&
           game.status === 'round-over' &&
@@ -153,11 +178,13 @@ function schedule() {
           broadcast();
         }
       } catch (e) {
-        game.status = 'paused';
-        console.error('对局暂停:', e instanceof Error ? e.message : '未知错误');
-        broadcast();
+        if (generation === epoch) {
+          game.status = 'paused';
+          console.error('对局暂停:', e instanceof Error ? e.message : '未知错误');
+          broadcast();
+        }
       } finally {
-        schedule();
+        if (generation === epoch) schedule();
       }
     },
     game.status === 'round-over' && nextRoundAt !== null ? 250 : delayMs,
@@ -165,6 +192,96 @@ function schedule() {
 }
 schedule();
 app.get('/api/health', (_q, r) => r.json({ ok: true, version: '0.1.0' }));
+app.use('/api', (q, r, next) => {
+  if (!['GET', 'HEAD'].includes(q.method) && q.headers.origin) {
+    try {
+      const origin = new URL(q.headers.origin);
+      const localDevelopment =
+        ['127.0.0.1', 'localhost'].includes(q.hostname) &&
+        ['http://127.0.0.1:5173', 'http://localhost:5173'].includes(origin.origin);
+      if (origin.host !== q.headers.host && !localDevelopment) {
+        r.status(403).json({ error: '来源不允许' });
+        return;
+      }
+    } catch {
+      r.sendStatus(403);
+      return;
+    }
+  }
+  next();
+});
+app.post('/api/auth/login', access.login);
+app.post('/api/auth/logout', access.logout);
+app.get('/api/auth/session', (q, r) =>
+  r.json(access.session(q) ? { authenticated: true, ...access.info } : { authenticated: false }),
+);
+app.use(['/api/state', '/api/events'], (q, r, next) => {
+  if (!access.viewer(q)) {
+    r.status(401).json({ error: '请登录或使用管理员分享的观战链接' });
+    return;
+  }
+  next();
+});
+const audioCache = new Map<string, Buffer>();
+const audioRequests = new Map<string, Promise<Buffer>>();
+let audioVersion = 0;
+app.get('/api/narration', async (q, r) => {
+  if (!access.viewer(q)) {
+    r.sendStatus(401);
+    return;
+  }
+  if (narration.engine !== 'api' || !narration.apiKey) {
+    r.status(503).json({ error: '管理员尚未配置音频解说服务' });
+    return;
+  }
+  const seq = Number(q.query.seq),
+    entry = game.history.find((e) => e.seq === seq);
+  if (!entry || seq < game.history.length - 12 || entry.seat < 0 || q.query.game !== game.id) {
+    r.status(404).json({ error: '解说已过期' });
+    return;
+  }
+  const id = `${audioVersion}:${game.id}:${seq}`;
+  try {
+    let audio = audioCache.get(id);
+    if (!audio) {
+      let pending = audioRequests.get(id);
+      if (!pending) {
+        pending = (async () => {
+          const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${narration.apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: narration.model,
+              voice: narration.voice,
+              input: `${agents[entry.seat].name}，${entry.move?.label ?? '不出'}`,
+              response_format: 'mp3',
+            }),
+            signal: AbortSignal.timeout(20000),
+          });
+          if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/'))
+            throw Error('音频服务请求失败');
+          const generated = Buffer.from(await response.arrayBuffer());
+          if (generated.length > 2000000) throw Error('音频过大');
+          if (audioCache.size >= 24) audioCache.delete(audioCache.keys().next().value!);
+          audioCache.set(id, generated);
+          return generated;
+        })();
+        audioRequests.set(id, pending);
+      }
+      try {
+        audio = await pending;
+      } finally {
+        audioRequests.delete(id);
+      }
+    }
+    r.set('Cache-Control', 'private, max-age=60').type('audio/mpeg').send(audio);
+  } catch {
+    r.status(502).json({ error: '音频生成失败，请管理员检查 TTS 服务配置' });
+  }
+});
 app.get('/api/state', (_q, r) => r.json(snapshot()));
 app.get('/api/events', (q, r) => {
   r.set({
@@ -182,9 +299,8 @@ app.get('/api/events', (q, r) => {
   });
 });
 app.use('/api', (q, r, next) => {
-  const token = process.env.CONTROL_TOKEN;
-  if (token && q.headers.authorization !== `Bearer ${token}`) {
-    r.status(401).json({ error: '控制口令错误' });
+  if (!access.session(q)) {
+    r.status(401).json({ error: '请先登录管理员账户' });
     return;
   }
   const origin = q.headers.origin;
@@ -205,19 +321,32 @@ app.use('/api', (q, r, next) => {
 app.post('/api/control', async (q, r) => {
   try {
     if (q.body.action === 'presentation') {
-      const settings = z.object({ speech: z.boolean().optional(), showFeed: z.boolean().optional() }).strict().parse(q.body.presentation);
+      const settings = z
+        .object({ speech: z.boolean().optional(), showFeed: z.boolean().optional() })
+        .strict()
+        .parse(q.body.presentation);
       presentation = { ...presentation, ...settings };
       broadcast();
       r.json(snapshot());
       return;
     }
     const { action } = z
-      .object({ action: z.enum(['start', 'pause', 'step', 'reset', 'next']) })
+      .object({ action: z.enum(['start', 'pause', 'step', 'reset', 'restart', 'next']) })
       .parse(q.body);
     if (action === 'pause') {
       game.status = game.status === 'running' ? 'paused' : game.status;
       nextRoundAt = null;
       epoch++;
+      busy = false;
+      thinking = null;
+    } else if (action === 'restart') {
+      epoch++;
+      game = newGame();
+      nextRoundAt = null;
+      thinking = null;
+      busy = false;
+      rememberRound();
+      game.status = 'running';
     } else {
       if (busy) throw Error('请等待当前决策完成');
       if (action === 'start') {
@@ -247,6 +376,7 @@ app.post('/api/control', async (q, r) => {
       }
     }
     broadcast();
+    schedule();
     r.json(snapshot());
   } catch (e) {
     r.status(400).json({ error: e instanceof Error ? e.message : '操作失败' });
@@ -259,6 +389,9 @@ const configSchema = z
     baseUrl: z.string().max(500),
     model: z.string().max(100),
     keyEnv: z.string().regex(/^$|^[A-Z][A-Z0-9_]*$/),
+    apiKey: z.string().max(2000).optional(),
+    deleteKey: z.boolean().optional(),
+    keyConfigured: z.boolean().optional(),
     personality: z.string().max(300),
     jev: z
       .object({
@@ -270,7 +403,10 @@ const configSchema = z
             const u = new URL(v);
             return ['http:', 'https:'].includes(u.protocol) && !u.username && !u.password;
           }),
-        keyEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+        keyEnv: z.string().regex(/^$|^[A-Z][A-Z0-9_]*$/),
+        apiKey: z.string().max(2000).optional(),
+        deleteKey: z.boolean().optional(),
+        keyConfigured: z.boolean().optional(),
       })
       .optional(),
   })
@@ -283,11 +419,39 @@ const configSchema = z
       } catch {
         c.addIssue({ code: 'custom', message: '无效接口 URL' });
       }
-      if (!v.keyEnv) c.addIssue({ code: 'custom', message: '请填写服务端 Key 环境变量名' });
+      if (!v.keyEnv && !v.apiKey && !v.keyConfigured && !v.deleteKey)
+        c.addIssue({ code: 'custom', message: '请填写模型 API Key' });
       if (v.provider === 'openai' && !v.model)
         c.addIssue({ code: 'custom', message: '请填写模型名称' });
     }
   });
+app.get('/api/config', (_q, r) =>
+  r.json({
+    agents: agents.map(safeAgent),
+    delayMs,
+    autoNext,
+    narration: { ...narration, apiKey: undefined, keyConfigured: Boolean(narration.apiKey) },
+  }),
+);
+function mergeKeys(config: AgentConfig, old?: AgentConfig): AgentConfig {
+  const { deleteKey, keyConfigured, ...value } = config;
+  const jev = config.jev;
+  return {
+    ...value,
+    keyEnv: deleteKey ? '' : value.keyEnv,
+    apiKey: deleteKey ? undefined : value.apiKey?.trim() || old?.apiKey,
+    ...(jev
+      ? {
+          jev: {
+            enabled: jev.enabled,
+            baseUrl: jev.baseUrl,
+            keyEnv: jev.deleteKey ? '' : jev.keyEnv,
+            apiKey: jev.deleteKey ? undefined : jev.apiKey?.trim() || old?.jev?.apiKey,
+          },
+        }
+      : {}),
+  };
+}
 app.put('/api/config', async (q, r) => {
   try {
     if (busy || game.status === 'running') throw Error('请先暂停并等待决策完成');
@@ -296,14 +460,59 @@ app.put('/api/config', async (q, r) => {
         agents: z.array(configSchema).length(4),
         delayMs: z.number().int().min(300).max(30000),
         autoNext: z.boolean(),
+        narration: z
+          .object({
+            engine: z.enum(['browser', 'api']),
+            baseUrl: z
+              .string()
+              .url()
+              .refine(
+                (v) =>
+                  ['http:', 'https:'].includes(new URL(v).protocol) &&
+                  !new URL(v).username &&
+                  !new URL(v).password,
+              ),
+            model: z.string().min(1).max(100),
+            voice: z.string().min(1).max(100),
+            apiKey: z.string().max(2000).optional(),
+            deleteKey: z.boolean().optional(),
+            keyConfigured: z.boolean().optional(),
+          })
+          .optional(),
       })
       .parse(q.body);
-    agents = body.agents;
+    const updated = body.agents.map((config, i) => mergeKeys(config, agents[i]));
+    const updatedNarration = body.narration
+      ? {
+          engine: body.narration.engine,
+          baseUrl: body.narration.baseUrl,
+          model: body.narration.model,
+          voice: body.narration.voice,
+          apiKey: body.narration.deleteKey
+            ? undefined
+            : body.narration.apiKey?.trim() || narration.apiKey,
+        }
+      : narration;
+    await writeFile(
+      'data/agents.json.tmp',
+      JSON.stringify(
+        access.encrypt({
+          agents: updated,
+          delayMs: body.delayMs,
+          autoNext: body.autoNext,
+          narration: updatedNarration,
+        }),
+      ),
+      { mode: 0o600 },
+    );
+    await rename('data/agents.json.tmp', 'data/agents.json');
+    agents = updated;
     delayMs = body.delayMs;
     autoNext = body.autoNext;
     if (!autoNext) nextRoundAt = null;
-    await writeFile('data/agents.json.tmp', JSON.stringify({ agents, delayMs, autoNext }, null, 2));
-    await rename('data/agents.json.tmp', 'data/agents.json');
+    narration = updatedNarration;
+    audioCache.clear();
+    audioVersion++;
     broadcast();
     r.json({ ok: true });
   } catch (e) {
@@ -312,7 +521,11 @@ app.put('/api/config', async (q, r) => {
 });
 app.post('/api/test', async (q, r) => {
   try {
-    const config = configSchema.parse(q.body);
+    const { seat, ...body } = q.body;
+    const config = mergeKeys(
+      configSchema.parse(body),
+      Number.isInteger(seat) && seat >= 0 && seat < 4 ? agents[seat] : undefined,
+    );
     const testGame = newGame();
     const moves = legalMoves(testGame.hands[0], testGame.level, null);
     const start = Date.now();
@@ -344,6 +557,4 @@ app.use((err: Error, _q: express.Request, r: express.Response, _next: express.Ne
 );
 const host = process.env.HOST ?? '127.0.0.1',
   port = Number(process.env.PORT ?? 3001);
-if (!['localhost', '127.0.0.1', '::1'].includes(host) && !process.env.CONTROL_TOKEN)
-  throw Error('对外监听必须设置 CONTROL_TOKEN');
 app.listen(port, host, () => console.log(`掼蛋 AI 服务 http://${host}:${port}`));

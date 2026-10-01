@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, toRaw, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { replaySession } from './replay';
+import { admin, sharePath } from './auth';
 const router = useRouter(),
   route = useRoute();
 const panel = computed(() => String(route.name ?? 'lobby'));
@@ -14,16 +15,32 @@ const state = ref<PublicGame>(),
   draft = ref<AgentConfig[]>([]),
   speed = ref(1800),
   autoNext = ref(true),
-  token = ref(sessionStorage.getItem('control-token') ?? ''),
   inspection = ref<PublicGame>(),
   replay = replaySession,
-  speech = ref(sessionStorage.getItem('arena-speech') === '1');
-watch(speech, (value) => sessionStorage.setItem('arena-speech', value ? '1' : '0'));
+  speech = ref(false);
+async function setSpeech(event: Event) {
+  await api('control', 'POST', {
+    action: 'presentation',
+    presentation: { speech: (event.target as HTMLInputElement).checked },
+  });
+}
+async function logout() {
+  await api('auth/logout');
+  admin.value = false;
+  await router.replace('/login');
+}
 const icons = ['✿', '◈', '●', '✦'],
   colors = ['#f5adbd', '#a9bbff', '#a8d6bf', '#ffd19a'];
+const narration = ref<{
+  engine: 'browser' | 'api';
+  baseUrl: string;
+  model: string;
+  voice: string;
+  apiKey?: string;
+  keyConfigured?: boolean;
+  deleteKey?: boolean;
+}>({ engine: 'browser', baseUrl: 'https://model.rhzy.ai/v1', model: 'tts-1', voice: 'alloy' });
 let stream: EventSource, clearToast: ReturnType<typeof setTimeout>;
-let lastSpoken = 0,
-  spokenGame = '';
 function notify(text: string) {
   toast.value = text;
   clearTimeout(clearToast);
@@ -34,11 +51,14 @@ async function api(path: string, method = 'POST', body?: unknown) {
     method,
     headers: {
       'Content-Type': 'application/json',
-      ...(token.value ? { Authorization: `Bearer ${token.value}` } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const json = await r.json();
+  if (r.status === 401) {
+    admin.value = false;
+    await router.replace('/login');
+  }
   if (!r.ok) throw Error(json.error ?? '请求失败');
   return json;
 }
@@ -56,10 +76,17 @@ async function control(action: string) {
     pending.value = false;
   }
 }
-function fillDraft() {
+async function fillDraft() {
   draft.value = structuredClone(toRaw(state.value?.agents ?? []));
   speed.value = state.value?.delayMs ?? 1800;
   autoNext.value = state.value?.autoNext ?? true;
+  try {
+    const config = await api('config', 'GET');
+    draft.value = config.agents;
+    narration.value = config.narration;
+  } catch (error) {
+    notify((error as Error).message);
+  }
 }
 function openConfig() {
   fillDraft();
@@ -75,11 +102,11 @@ watch(
 async function save(enter = false) {
   pending.value = true;
   try {
-    sessionStorage.setItem('control-token', token.value);
     await api('config', 'PUT', {
       agents: draft.value,
       delayMs: speed.value,
       autoNext: autoNext.value,
+      narration: narration.value,
     });
     notify('模型配置已保存');
     if (enter) await startArena();
@@ -93,7 +120,7 @@ async function save(enter = false) {
 async function test(i: number) {
   pending.value = true;
   try {
-    const result = await api('test', 'POST', draft.value[i]);
+    const result = await api('test', 'POST', { ...draft.value[i], seat: i });
     notify(`连接成功 · ${result.source} · ${result.elapsedMs}ms · ${result.move}`);
   } catch (e) {
     notify((e as Error).message);
@@ -125,6 +152,7 @@ function changeProvider(a: AgentConfig) {
 }
 function enableJev(a: AgentConfig, event: Event) {
   a.jev = {
+    ...a.jev,
     enabled: (event.target as HTMLInputElement).checked,
     baseUrl: a.jev?.baseUrl ?? 'http://10.0.10.2:8019/mcp',
     keyEnv: a.jev?.keyEnv ?? 'JEV_API_KEY',
@@ -175,7 +203,7 @@ async function loadReplay(event: Event) {
   input.value = '';
 }
 const liveUrl = computed(
-  () => `${location.origin}/arena?broadcast=1${portrait ? '&layout=portrait' : ''}`,
+  () => `${location.origin}${sharePath.value}${portrait ? '?layout=portrait' : ''}`,
 );
 onMounted(() => {
   stream = new EventSource('/api/events');
@@ -183,22 +211,9 @@ onMounted(() => {
     try {
       state.value = JSON.parse(e.data);
       connected.value = true;
+      speech.value = state.value?.presentation?.speech ?? false;
       if (panel.value === 'config' && !draft.value.length) fillDraft();
       if (panel.value === 'inspect' && !inspection.value) inspect();
-      const entry = state.value!.history.at(-1);
-      if (spokenGame !== state.value!.id) {
-        spokenGame = state.value!.id;
-        lastSpoken = entry?.seq ?? -1;
-      }
-      if (speech.value && entry && entry.seq > lastSpoken) {
-        lastSpoken = entry.seq;
-        const utterance = new SpeechSynthesisUtterance(
-          `${entry.seat >= 0 ? state.value!.agents[entry.seat].name + '，' : ''}${entry.move?.label ?? entry.text}`,
-        );
-        utterance.lang = 'zh-CN';
-        speechSynthesis.cancel();
-        speechSynthesis.speak(utterance);
-      }
     } catch {
       notify('对局数据读取失败');
     }
@@ -208,7 +223,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stream?.close();
   clearTimeout(clearToast);
-  speechSynthesis.cancel();
 });
 </script>
 <template>
@@ -218,6 +232,7 @@ onBeforeUnmount(() => {
         >g<span>掼蛋<span class="brand-ai">AI</span></span></a
       >
       <div class="workspace-label">竞技工作室</div>
+      <button @click="logout">↗ <span>退出登录</span></button>
       <button :class="{ selected: panel === 'lobby' }" @click="router.push('/studio')">
         ◉ <span>赛事大厅</span><small>01</small></button
       ><button :class="{ selected: panel === 'config' }" @click="openConfig">
@@ -285,12 +300,13 @@ onBeforeUnmount(() => {
           <span>第 {{ state.round }} 局 · 打 {{ rankName(state.level) }}</span
           ><span>{{ state.autoNext ? '连续对局 · 局间停留 8 秒' : '单局模式' }}</span
           ><RouterLink to="/arena">只进入观战画面 ↗</RouterLink>
+          <button :disabled="pending" @click="control('restart')">重新开始比赛</button>
         </div>
       </section>
       <section v-else-if="panel === 'config'" class="settings">
         <div class="section-intro">
           <h2>四个座位，四种个性。</h2>
-          <p>每位选手可独立使用不同模型。Key 保存在后端 .env，浏览器仅填写环境变量名。</p>
+          <p>每位选手独立决策。API Key 由管理员管理，保存后不会回显；留空保留已有 Key。</p>
         </div>
         <div class="config-grid">
           <article v-for="(a, i) in draft" :key="i" class="config-card">
@@ -310,9 +326,10 @@ onBeforeUnmount(() => {
                   placeholder="https://api.example.com/v1" /></label
               ><label>Model<input v-model="a.model" placeholder="填写服务商实际模型 ID" /></label
               ><label
-                >Key 环境变量名<input
-                  v-model="a.keyEnv"
-                  placeholder="MODEL_API_KEY"
+                >模型 API Key<input
+                  type="password"
+                  v-model="a.apiKey"
+                  :placeholder="a.keyConfigured ? '已配置 · 留空保留' : '输入模型 API Key'"
                   autocomplete="off" /></label></template
             ><template v-if="a.provider === 'openai'">
               <label class="check"
@@ -321,8 +338,20 @@ onBeforeUnmount(() => {
               >
               <template v-if="a.jev?.enabled"
                 ><label>JEV MCP URL<input v-model="a.jev.baseUrl" /></label
-                ><label>JEV Key 环境变量名<input v-model="a.jev.keyEnv" /></label
-              ></template> </template
+                ><label
+                  >JEV API Key<input
+                    type="password"
+                    v-model="a.jev.apiKey"
+                    :placeholder="a.jev.keyConfigured ? '已配置 · 留空保留' : '输入 JEV API Key'"
+                    autocomplete="off"
+                /></label>
+                <label class="check"
+                  ><input type="checkbox" v-model="a.jev.deleteKey" /> 保存时删除 JEV Key</label
+                >
+                ></template
+              > </template
+            ><label class="check" v-if="a.provider === 'openai'"
+              ><input type="checkbox" v-model="a.deleteKey" /> 保存时删除模型 Key</label
             ><label
               >角色个性<textarea v-model="a.personality" rows="2" maxlength="300"></textarea></label
             ><button class="ghost full" :disabled="pending" @click="test(i)">
@@ -332,6 +361,35 @@ onBeforeUnmount(() => {
         </div>
         <div class="settings-bottom">
           <label
+            >解说方式<select v-model="narration.engine">
+              <option value="browser">浏览器语音 · 无额外费用</option>
+              <option value="api">音频服务 · 微信兼容</option>
+            </select></label
+          >
+          <template v-if="narration.engine === 'api'">
+            <label>音频服务 Base URL<input v-model="narration.baseUrl" /></label>
+            <label
+              >语音模型<input v-model="narration.model" placeholder="服务商支持的 TTS 模型"
+            /></label>
+            <label>音色<input v-model="narration.voice" /></label>
+            <label
+              >音频服务 API Key<input
+                type="password"
+                v-model="narration.apiKey"
+                :placeholder="
+                  narration.keyConfigured ? '已配置 · 留空保留' : '输入支持 TTS 的服务 Key'
+                "
+                autocomplete="off"
+            /></label>
+            <label class="check"
+              ><input type="checkbox" v-model="narration.deleteKey" /> 删除音频 Key</label
+            >
+            <p class="subtle">
+              需使用支持 /audio/speech
+              的服务；对局模型不一定支持语音生成。观众在微信中点击开启声音后播放。
+            </p>
+          </template>
+          <label
             >行动间隔<select v-model.number="speed">
               <option :value="600">0.6 秒 · 快速测试</option>
               <option :value="1800">1.8 秒 · 标准</option>
@@ -339,11 +397,6 @@ onBeforeUnmount(() => {
               <option :value="6000">6 秒 · 解说</option>
             </select></label
           ><label class="check"><input type="checkbox" v-model="autoNext" /> 自动进入下一局</label
-          ><label
-            >控制口令<input
-              type="password"
-              v-model="token"
-              placeholder="如后端设置 CONTROL_TOKEN" /></label
           ><button class="primary" :disabled="pending" @click="save(false)">保存配置</button
           ><button class="primary" :disabled="pending" @click="save(true)">保存并开始对局 →</button>
         </div>
@@ -373,7 +426,7 @@ onBeforeUnmount(() => {
             <h3>01 / 添加画面</h3>
             <p>
               OBS 新建「浏览器」来源，填写下方 URL，推荐 1920 × 1080、30 FPS。竖屏用 URL 增加
-              &layout=portrait，设为 1080 × 1920。
+              ?layout=portrait，设为 1080 × 1920。
             </p>
             <input readonly :value="liveUrl" aria-label="直播画面地址" />
           </article>
@@ -392,10 +445,10 @@ onBeforeUnmount(() => {
           <article>
             <h3>03 / 解说与节奏</h3>
             <p>
-              选手动作和公开出牌动态自动同步。开启本机语音解说后，使用桌面音频捕获。语音可用性取决于浏览器与系统语音包。
+              控制页保持静音，解说开关同步到观众页。观众首次点击开启声音；微信建议使用模型配置中的音频服务解说。
             </p>
             <label class="check"
-              ><input type="checkbox" v-model="speech" /> 开启语音解说（进入对局后保持）</label
+              ><input type="checkbox" :checked="speech" @change="setSpeech" /> 直播页语音解说</label
             >
           </article>
         </div>

@@ -90,8 +90,8 @@ export function observation(g: Game, candidates: Move[]): string {
     })),
   });
 }
-function key(config: { keyEnv: string }): string {
-  const value = process.env[config.keyEnv];
+function key(config: { keyEnv: string; apiKey?: string }): string {
+  const value = config.apiKey || process.env[config.keyEnv];
   if (!value) throw Error(`服务端环境变量 ${config.keyEnv || '(未配置)'} 未设置`);
   return value;
 }
@@ -100,7 +100,7 @@ function parseJson(text: string): unknown {
   return JSON.parse(clean);
 }
 export async function jevAdvice(
-  config: { baseUrl: string; keyEnv: string },
+  config: { baseUrl: string; keyEnv: string; apiKey?: string },
   situation: string,
   candidates: Move[],
 ) {

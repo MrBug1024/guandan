@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import ArenaScene from './ArenaScene.vue';
 import { gameFrame, rankName, type PublicGame } from '../shared/types';
 import { replaySession } from './replay';
+import { admin, sharePath } from './auth';
 import './arena.css';
 
 const route = useRoute(),
@@ -14,34 +15,139 @@ const pending = ref(false),
   toast = ref(''),
   showFeed = ref(false),
   speech = ref(false),
+  viewerError = ref('正在连接对局…'),
   now = ref(Date.now()),
   viewportWidth = ref(innerWidth);
 const replayIndex = ref(replaySession.value?.game.history.length ?? 0);
 const speechReady = ref(false);
-function enableBroadcastAudio() {
+const audioError = ref('');
+const audio = new Audio();
+audio.preload = 'auto';
+let unlockUrl = '';
+function stopNarration() {
+  audio.pause();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+function silentAudio() {
+  const bytes = new Uint8Array(844),
+    data = new DataView(bytes.buffer);
+  const text = (offset: number, value: string) =>
+    [...value].forEach((c, i) => data.setUint8(offset + i, c.charCodeAt(0)));
+  text(0, 'RIFF');
+  data.setUint32(4, 836, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  data.setUint32(16, 16, true);
+  data.setUint16(20, 1, true);
+  data.setUint16(22, 1, true);
+  data.setUint32(24, 8000, true);
+  data.setUint32(28, 8000, true);
+  data.setUint16(32, 1, true);
+  data.setUint16(34, 8, true);
+  text(36, 'data');
+  data.setUint32(40, 800, true);
+  bytes.fill(128, 44);
+  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+}
+async function enableBroadcastAudio() {
+  audioError.value = '';
+  if (view.value?.narration?.engine === 'api') {
+    if (!view.value.narration.ready) {
+      audioError.value = '管理员尚未配置音频服务，请稍后重试。';
+      return;
+    }
+    try {
+      unlockUrl ||= silentAudio();
+      audio.src = unlockUrl;
+      await audio.play();
+      speechReady.value = true;
+    } catch {
+      audioError.value = '声音未开启，请检查媒体音量后再次点击。';
+    }
+    return;
+  }
+  if (!('speechSynthesis' in window)) {
+    audioError.value =
+      '当前微信浏览器不支持系统语音。请管理员启用音频服务解说，或在系统浏览器观看。';
+    return;
+  }
   const voice = new SpeechSynthesisUtterance('直播解说已开启');
   voice.lang = 'zh-CN';
-  voice.onerror = (event) => { if (event.error === 'not-allowed') speechReady.value = false; };
+  voice.onstart = () => {
+    speechReady.value = true;
+    audioError.value = '';
+  };
+  voice.onerror = (event) => {
+    if (event.error === 'canceled' || event.error === 'interrupted') return;
+    speechReady.value = false;
+    audioError.value = '系统语音不可用，请重试或让管理员启用音频服务。';
+  };
   speechSynthesis.speak(voice);
-  speechReady.value = true;
+}
+function speakEntry(entry: NonNullable<PublicGame['history'][number]>) {
+  if (view.value?.narration?.engine === 'api') {
+    audio.src = `/api/narration${spectatorQuery.value || '?'}${spectatorQuery.value ? '&' : ''}game=${encodeURIComponent(view.value.id)}&seq=${entry.seq}`;
+    const gameId = view.value.id;
+    void audio.play().catch((error) => {
+      if (error?.name === 'AbortError' || view.value?.id !== gameId) return;
+      speechReady.value = false;
+      audioError.value = '解说播放失败，请重试；若持续失败，请管理员检查音频服务。';
+    });
+    return;
+  }
+  if (!('speechSynthesis' in window)) return;
+  const voice = new SpeechSynthesisUtterance(
+    `${state.value!.agents[entry.seat].name}，${entry.move?.label ?? ''}`,
+  );
+  voice.lang = 'zh-CN';
+  voice.onerror = (event) => {
+    if (event.error === 'not-allowed') {
+      speechReady.value = false;
+      audioError.value = '请点击重新开启声音。';
+    }
+  };
+  speechSynthesis.cancel();
+  speechSynthesis.speak(voice);
 }
 const playerAnchors = ref<{ x: number; y: number }[]>([]);
 function playerLabelStyle(seat: number) {
   const anchor = playerAnchors.value[seat];
-  if (!anchor || (seat !== 1 && seat !== 3)) return {};
   const compact = viewportWidth.value <= 700;
-  const halfWidth = compact ? 66 : 90;
-  const offset = compact ? 45 : 75;
+  if (!anchor || (!compact && seat !== 1 && seat !== 3)) return {};
+  const halfWidth = compact ? 49 : 90;
+  const offset = compact ? 16 : 75;
+  const projectedY = anchor.y + (compact ? (seat === 2 ? -95 : seat === 0 ? 34 : 26) : 12);
+  const labelY =
+    compact && seat === 2
+      ? Math.max(166, projectedY)
+      : compact && seat === 0
+        ? Math.min(innerHeight - 230, projectedY)
+        : projectedY;
   return {
-    left: `${Math.max(halfWidth + 12, Math.min(viewportWidth.value - halfWidth - 12, anchor.x + (seat === 1 ? -offset : offset)))}px`,
-    top: `${anchor.y + 12}px`,
+    left: `${Math.max(halfWidth + 10, Math.min(viewportWidth.value - halfWidth - 10, anchor.x + (seat === 1 ? -offset : seat === 3 ? offset : 0)))}px`,
+    top: `${labelY}px`,
     right: 'auto',
     bottom: 'auto',
     transform: 'translate(-50%, -50%)',
   };
 }
-const broadcastMode = computed(() => route.query.broadcast === '1'),
-  portrait = computed(() => route.query.layout === 'portrait');
+const broadcastMode = computed(() => route.name === 'watch' || route.query.broadcast === '1'),
+  portrait = computed(() => route.query.layout === 'portrait' || viewportWidth.value <= 700);
+const spectatorQuery = computed(() =>
+  route.name === 'watch' ? `?share=${encodeURIComponent(String(route.params.share))}` : '',
+);
+async function shareMatch() {
+  const url = `${location.origin}${sharePath.value}`;
+  try {
+    if (navigator.share) await navigator.share({ title: '掼蛋 AI 俱乐部 · 实时观战', url });
+    else {
+      await navigator.clipboard.writeText(url);
+      notify('观战链接已复制');
+    }
+  } catch {
+    notify('可在直播工作台复制观战链接');
+  }
+}
 const colors = ['#f2adbd', '#aabef6', '#add8bc', '#f3ce93'],
   icons = ['✿', '◇', '●', '✦'];
 let stream: EventSource,
@@ -113,12 +219,10 @@ async function action(name: string, presentation?: { speech?: boolean; showFeed?
   if (replaySession.value) return;
   pending.value = true;
   try {
-    const token = sessionStorage.getItem('control-token');
     const response = await fetch('/api/control', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ action: name, ...(presentation ? { presentation } : {}) }),
     });
@@ -137,42 +241,67 @@ async function leave() {
   await router.push('/studio');
 }
 function handStyle(i: number) {
+  if (viewportWidth.value <= 700) {
+    const middle = (hand.value.length - 1) / 2;
+    const spread = Math.min(42, middle * 14);
+    return {
+      left: '50%',
+      transform: `translateX(-50%) rotate(${middle ? ((i - middle) / middle) * spread : 0}deg)`,
+      zIndex: i + 1,
+    };
+  }
   const middle = (hand.value.length - 1) / 2,
     available = Math.min(700, viewportWidth.value * (viewportWidth.value < 700 ? 0.88 : 0.68)),
     step = Math.min(30, (available - 49) / Math.max(1, hand.value.length - 1));
   return {
     left: `calc(50% + ${(i - middle) * step}px)`,
-    transform: `translateX(-50%) translateY(${Math.pow((i - middle) / Math.max(1, middle), 2) * 12}px) rotate(${(i - middle) * 0.6}deg)`,
+    transform: `translateX(-50%) translateY(${Math.pow((i - middle) / Math.max(1, middle), 2) * 10}px) rotate(${((i - middle) / Math.max(1, middle)) * Math.min(14, middle * 3)}deg)`,
     zIndex: i + 1,
   };
 }
 function resize() {
   viewportWidth.value = innerWidth;
 }
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', resize);
   clock = setInterval(() => (now.value = Date.now()), 200);
-  stream = new EventSource('/api/events');
+  try {
+    const response = await fetch('/api/state' + spectatorQuery.value);
+    if (!response.ok) {
+      viewerError.value = broadcastMode.value
+        ? '观战链接无效，请向管理员获取新的链接。'
+        : '登录已过期，请重新登录。';
+      if (!broadcastMode.value) await router.replace('/login');
+      return;
+    }
+    state.value = await response.json();
+  } catch {
+    viewerError.value = '暂时无法连接对局，请刷新页面重试。';
+    return;
+  }
+  stream = new EventSource('/api/events' + spectatorQuery.value);
   stream.onmessage = (e) => {
     state.value = JSON.parse(e.data);
     connected.value = true;
     speech.value = state.value?.presentation?.speech ?? false;
     showFeed.value = state.value?.presentation?.showFeed ?? false;
-    if (!speech.value) speechSynthesis.cancel();
+    if (!speech.value) stopNarration();
     const entry = state.value?.history.at(-1);
     if (spokenGame !== state.value?.id) {
+      stopNarration();
       spokenGame = state.value?.id ?? '';
       spokenSeq = entry?.seq ?? -1;
     }
-    if (speech.value && speechReady.value && broadcastMode.value && entry && entry.seq > spokenSeq && entry.seat >= 0) {
+    if (
+      speech.value &&
+      speechReady.value &&
+      broadcastMode.value &&
+      entry &&
+      entry.seq > spokenSeq &&
+      entry.seat >= 0
+    ) {
       spokenSeq = entry.seq;
-      const voice = new SpeechSynthesisUtterance(
-        `${state.value!.agents[entry.seat].name}，${entry.move?.label ?? ''}`,
-      );
-      voice.lang = 'zh-CN';
-      voice.onerror = (event) => { if (event.error === 'not-allowed') speechReady.value = false; };
-      speechSynthesis.cancel();
-      speechSynthesis.speak(voice);
+      speakEntry(entry);
     }
     if (entry) spokenSeq = entry.seq;
   };
@@ -183,14 +312,24 @@ onBeforeUnmount(() => {
   stream?.close();
   clearInterval(clock);
   clearTimeout(toastTimer);
-  speechSynthesis.cancel();
+  stopNarration();
+  if (unlockUrl) URL.revokeObjectURL(unlockUrl);
 });
 </script>
 <template>
   <div
     class="match-page"
-    :class="{ 'clean-broadcast': broadcastMode, 'match-portrait': portrait, 'feed-open': showFeed }"
+    :class="{
+      'clean-broadcast': broadcastMode,
+      'match-portrait': portrait,
+      'feed-open': showFeed,
+      'audio-prompt': broadcastMode && speech && !speechReady,
+    }"
   >
+    <div v-if="!view" class="arena-loading">
+      <strong>掼蛋 AI 俱乐部</strong>
+      <p>{{ viewerError }}</p>
+    </div>
     <template v-if="view">
       <ArenaScene
         :turn="view.turn"
@@ -208,7 +347,11 @@ onBeforeUnmount(() => {
         @anchors="playerAnchors = $event"
       />
       <div class="room-vignette"></div>
-      <button v-if="broadcastMode && speech && !speechReady" class="broadcast-audio-start" @click="enableBroadcastAudio">🔊 开启直播声音</button>
+      <div v-if="broadcastMode && speech && !speechReady" class="broadcast-audio-start">
+        <button @click="enableBroadcastAudio">
+          🔊 {{ audioError ? '重试开启声音' : '点击开启解说声音' }}</button
+        ><small>{{ audioError || '微信与手机浏览器需要点击后才能播放声音' }}</small>
+      </div>
       <header class="match-header">
         <div class="match-brand">
           <span class="club-mark">g</span>
@@ -234,7 +377,10 @@ onBeforeUnmount(() => {
         <div class="match-top-actions">
           <span class="match-connection" :class="{ online: connected }"
             >● {{ connected ? status : '重新连接中' }}</span
-          ><button v-if="!broadcastMode" title="返回工作室并暂停" @click="leave">↗ 工作室</button>
+          ><button v-if="!broadcastMode && admin" @click="shareMatch">分享观战</button
+          ><button v-if="!broadcastMode && admin" title="返回工作室并暂停" @click="leave">
+            ↗ 工作室
+          </button>
         </div>
       </header>
       <aside class="match-notice" aria-label="文明观赛声明">
@@ -352,13 +498,20 @@ onBeforeUnmount(() => {
             ><span>{{
               card.suit === 'J' ? '★' : { S: '♠', H: '♥', C: '♣', D: '♦' }[card.suit]
             }}</span
-            ><small v-if="card.suit === 'H' && card.rank === view.level">配</small>
+            ><span class="card-center" aria-hidden="true">{{
+              card.suit === 'J' ? '★' : { S: '♠', H: '♥', C: '♣', D: '♦' }[card.suit]
+            }}</span>
+            <span class="card-bottom" aria-hidden="true">{{ rankName(card.rank) }}</span>
+            <small v-if="card.suit === 'H' && card.rank === view.level">配</small>
           </div>
           <p v-if="!hand.length">手牌已出完，等待搭档。</p>
         </div>
       </div>
       <aside v-if="showFeed" class="match-feed">
-        <h2>牌桌动态 <button v-if="!broadcastMode" @click="setPresentation({ showFeed: false })">×</button></h2>
+        <h2>
+          牌桌动态
+          <button v-if="!broadcastMode" @click="setPresentation({ showFeed: false })">×</button>
+        </h2>
         <article v-for="e in recent" :key="e.seq">
           <strong :style="{ color: e.seat < 0 ? '#dec69d' : colors[e.seat] }"
             >{{ e.seat < 0 ? '裁判' : view.agents[e.seat].name }}
@@ -370,7 +523,9 @@ onBeforeUnmount(() => {
       </aside>
       <div v-if="view.tribute.length" class="match-tribute">{{ view.tribute.join('；') }}</div>
       <footer v-if="!broadcastMode" class="match-controls">
-        <button @click="setPresentation({ showFeed: !showFeed })">☷ {{ showFeed ? '收起' : '对局动态' }}</button
+        <button :disabled="pending" @click="action('restart')">↻ 重新开始</button>
+        <button @click="setPresentation({ showFeed: !showFeed })">
+          ☷ {{ showFeed ? '收起' : '对局动态' }}</button
         ><button
           :disabled="
             pending ||
@@ -388,7 +543,13 @@ onBeforeUnmount(() => {
           @click="action(view.status === 'running' || countdown !== null ? 'pause' : 'start')"
         >
           {{ view.status === 'running' || countdown !== null ? 'Ⅱ 暂停' : '▶ 继续对局' }}</button
-        ><label><input type="checkbox" :checked="speech" @change="setPresentation({ speech: ($event.target as HTMLInputElement).checked })" /> 直播解说</label
+        ><label
+          ><input
+            type="checkbox"
+            :checked="speech"
+            @change="setPresentation({ speech: ($event.target as HTMLInputElement).checked })"
+          />
+          直播解说</label
         ><span>{{ view.autoNext ? '↻ 连续对局' : '单局模式' }}</span>
       </footer>
       <div v-if="replaySession" class="match-replay">

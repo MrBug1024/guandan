@@ -1,5 +1,7 @@
 # 服务器更新：直播解说与动态面板同步
 
+> 此文档记录先前版本。管理员登录和移动观战更新已替代控制口令与旧直播地址，请部署 AI 按 [最新更新文档](admin-mobile-update.md) 执行。
+
 适用站点：https://gd.rhzy.ai 。仓库：https://github.com/MrBug1024/guandan 。
 
 ## 更新行为

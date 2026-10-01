@@ -27,7 +27,17 @@ export interface Move {
 export interface AgentConfig {
   name: string;
   provider: 'builtin' | 'openai';
-  jev?: { enabled: boolean; baseUrl: string; keyEnv: string };
+  jev?: {
+    enabled: boolean;
+    baseUrl: string;
+    keyEnv: string;
+    apiKey?: string;
+    keyConfigured?: boolean;
+    deleteKey?: boolean;
+  };
+  apiKey?: string;
+  keyConfigured?: boolean;
+  deleteKey?: boolean;
   baseUrl: string;
   model: string;
   keyEnv: string;
@@ -63,6 +73,7 @@ export interface Game {
   tribute: string[];
 }
 export interface PublicGame extends Omit<Game, 'hands'> {
+  narration?: { engine: 'browser' | 'api'; ready: boolean };
   presentation?: { speech: boolean; showFeed: boolean };
   counts: number[];
   hands?: Card[][];
