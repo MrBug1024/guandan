@@ -373,18 +373,95 @@ test('single donor with both big kings refuses tribute and first finisher leads'
   assert.equal(JSON.stringify(g.hands), before);
 });
 
-test('complete multi-round strategy matches reach A without losing or duplicating cards',()=>{
- for(let run=0;run<2;run++){
-  const g=newGame();g.status='running';let turns=0;
-  const status = () => g.status;
-  while(status()!=='match-over' && turns<30000 && g.round<200){
-   if(status()==='round-over'){
-    nextRound(g);assert.equal(g.hands.flat().length,108);assert.equal(new Set(g.hands.flat().map(c=>c.id)).size,108);
-    assert.equal(g.level,g.levels[g.previous[0]%2]);g.status='running';
-   }
-   applyMove(g,heuristic(g,legalMoves(g.hands[g.turn],g.level,g.last)).id);turns++;
+test('complete multi-round strategy matches reach A without losing or duplicating cards', () => {
+  for (let run = 0; run < 2; run++) {
+    const g = newGame();
+    g.status = 'running';
+    let turns = 0;
+    const status = () => g.status;
+    while (status() !== 'match-over' && turns < 30000 && g.round < 200) {
+      if (status() === 'round-over') {
+        nextRound(g);
+        assert.equal(g.hands.flat().length, 108);
+        assert.equal(new Set(g.hands.flat().map((c) => c.id)).size, 108);
+        assert.equal(g.level, g.levels[g.previous[0] % 2]);
+        g.status = 'running';
+      }
+      applyMove(g, heuristic(g, legalMoves(g.hands[g.turn], g.level, g.last)).id);
+      turns++;
+    }
+    assert.equal(g.status, 'match-over');
+    assert.equal(g.level, 14);
+    assert.equal(g.levels[g.winner!], 14);
+    assert.ok(g.finished.indexOf((g.finished[0] + 2) % 4) <= 2);
   }
-  assert.equal(g.status,'match-over');assert.equal(g.level,14);assert.equal(g.levels[g.winner!],14);
-  assert.ok(g.finished.indexOf((g.finished[0]+2)%4)<=2);
- }
+});
+test('upgrade starts from the current deal level without demoting an earned higher level', () => {
+  const g = newGame();
+  g.level = 5;
+  g.levels = [2, 5];
+  g.finished = [0];
+  g.turn = 2;
+  g.hands[2] = [{ id: 'finish-current-level', rank: 4, suit: 'S' }];
+  applyMove(g, legalMoves(g.hands[2], g.level, null)[0].id);
+  assert.equal(g.levels[0], 8);
+  assert.equal(g.settlement?.upgrade, 3);
+  assert.equal(g.settlement?.to, 8);
+});
+
+test('three failed A attempts demote the attempting team, not necessarily the round winner', () => {
+  for (const winner of [0, 1]) {
+    const g = newGame();
+    g.level = 14;
+    g.levels = [14, winner === 0 ? 14 : 2];
+    g.previous = [0, 1, 3, 2];
+    g.aFailures = [2, 0];
+    g.finished = winner === 0 ? [0, 1] : [1, 2];
+    g.turn = 3;
+    g.hands[3] = [{ id: 'failed-a', rank: 4, suit: 'S' }];
+    applyMove(g, legalMoves(g.hands[3], g.level, null)[0].id);
+    assert.equal(g.status, 'round-over');
+    assert.equal(g.levels[0], 2);
+    assert.equal(g.aFailures[0], 0);
+    assert.equal(g.settlement?.failedA, 3);
+    assert.equal(g.settlement?.demotedTeam, 0);
+  }
+});
+
+test('first and second failed A attempts keep the team at A', () => {
+  for (const failures of [0, 1]) {
+    const g = newGame();
+    g.level = 14;
+    g.levels = [14, 2];
+    g.previous = [0, 1, 3, 2];
+    g.aFailures = [failures, 0];
+    g.finished = [0, 1];
+    g.turn = 3;
+    g.hands[3] = [{ id: 'retry-a', rank: 4, suit: 'S' }];
+    applyMove(g, legalMoves(g.hands[3], 14, null)[0].id);
+    assert.equal(g.levels[0], 14);
+    assert.equal(g.aFailures[0], failures + 1);
+    assert.equal(g.settlement?.passedA, false);
+  }
+});
+
+test('tribute ceremony exposes only the exchanged public cards and pauses the opening briefly', () => {
+  const g = newGame();
+  g.status = 'round-over';
+  g.finished = [0, 1, 2, 3];
+  // Guarantee single tribute rather than the randomly dealt anti-tribute case.
+  g.hands = [
+    [{ id: 'return', rank: 3, suit: 'S' }],
+    [],
+    [],
+    [{ id: 'offer', rank: 13, suit: 'S' }],
+  ];
+  nextRound(g, g.hands);
+  assert.equal(g.tributeKind, 'single');
+  assert.deepEqual(
+    g.tributeSteps?.map((s) => [s.donor, s.receiver, s.offered.id, s.returned.id]),
+    [[3, 0, 'offer', 'return']],
+  );
+  assert.equal(g.turn, 3);
+  assert.ok(g.tributeUntil! > Date.now());
 });

@@ -70,11 +70,12 @@ export function shortlist(g: Game, moves: Move[]): Move[] {
 export function observation(g: Game, candidates: Move[]): string {
   return JSON.stringify({
     rules:
-      '两副牌，对家组队。级牌大于A小于王。红桃级牌可配非王牌。四王>六张及以上炸弹>同花顺>五炸>四炸。同队头游二游升3级、头游三游升2级、头游末游升1级；必须实际打A且对家非末游才能通关。只选择给定动作；不要假设其他玩家手牌。',
+      '两副牌，对家组队。级牌大于A小于王。红桃级牌可配非王牌。四王>六张及以上炸弹>同花顺>五炸>四炸。同队头游二游升3级、头游三游升2级、头游末游升1级；升级按当前级牌加级且不降低已取得的更高等级，封顶A。必须实际打A且对家非末游才能通关；选择本副级牌的队伍累计三次过A失败降回2。顺时针出牌；出完无人接牌由对家接风。只选择给定动作；不要假设其他玩家手牌。',
     seat: g.turn,
     partner: (g.turn + 2) % 4,
     level: g.level,
     levels: g.levels,
+    aFailures: g.aFailures ?? [0, 0],
     round: g.round,
     tribute: g.tribute,
     hand: g.hands[g.turn].map(cardName),

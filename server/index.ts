@@ -54,7 +54,7 @@ let roundInitial = structuredClone(game),
 function replayData() {
   return {
     version: 1,
-    rules: 'arena-v2',
+    rules: 'arena-v3',
     agents: agents.map(safeAgent),
     initial: roundInitial,
     game: { ...game, history: game.history.slice(roundOffset) },
@@ -78,6 +78,10 @@ function snapshot(): PublicGame {
   };
 }
 function broadcast() {
+  if (presentation.speech) {
+    const entry = game.history.at(-1);
+    void narrationAudio(narrationText(entry)).catch(() => {});
+  }
   const data = `data: ${JSON.stringify(snapshot())}\n\n`;
   for (const c of clients) c.write(data);
 }
@@ -123,6 +127,7 @@ async function archive() {
 }
 async function step() {
   if (busy) throw Error('正在决策中');
+  if (game.tributeUntil && Date.now() < game.tributeUntil) return;
   if (['round-over', 'match-over'].includes(game.status)) throw Error('本局已结束');
   busy = true;
   thinking = game.turn;
@@ -130,12 +135,15 @@ async function step() {
   const generation = epoch,
     start = Date.now(),
     seat = game.turn;
+  // Prepare the common pass call while this player is deciding; no private cards are sent.
+  if (presentation.speech && game.last)
+    void narrationAudio(spokenMove(agents[seat].name)).catch(() => {});
   try {
     const result = await graph.invoke({ game: structuredClone(game), config: agents[seat] });
     if (generation !== epoch) return;
     const wasRunning = game.status === 'running';
     const move = applyMove(game, result.move.id);
-    if (game.status === 'round-over' && autoNext && wasRunning) nextRoundAt = Date.now() + 8000;
+    if (game.status === 'round-over' && autoNext && wasRunning) nextRoundAt = Date.now() + 5000;
     game.history.push({
       seq: game.history.length + 1,
       seat,
@@ -157,14 +165,19 @@ async function step() {
   }
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
-function schedule() {
+function schedule(previousDecisionMs = 0) {
   clearTimeout(timer);
   const generation = epoch;
+  let spentMs = 0;
   timer = setTimeout(
     async () => {
       if (generation !== epoch) return;
       try {
-        if (game.status === 'running') await step();
+        if (game.status === 'running') {
+          const startedAt = Date.now();
+          await step();
+          spentMs = Date.now() - startedAt;
+        }
         if (generation !== epoch) return;
         if (
           autoNext &&
@@ -185,10 +198,14 @@ function schedule() {
           broadcast();
         }
       } finally {
-        if (generation === epoch) schedule();
+        if (generation === epoch) schedule(spentMs);
       }
     },
-    game.status === 'round-over' && nextRoundAt !== null ? 250 : delayMs,
+    game.status === 'round-over' && nextRoundAt !== null
+      ? 250
+      : game.status === 'running' && game.tributeUntil && game.tributeUntil > Date.now()
+        ? game.tributeUntil - Date.now()
+        : Math.max(150, delayMs - previousDecisionMs),
   );
 }
 schedule();
@@ -225,7 +242,109 @@ app.use(['/api/state', '/api/events'], (q, r, next) => {
 });
 const audioCache = new Map<string, Buffer>();
 const audioRequests = new Map<string, Promise<Buffer>>();
-let audioVersion = 0;
+const audioStreams = new Map<
+  string,
+  { chunks: Buffer[]; listeners: Set<(audio: Buffer) => void> }
+>();
+let audioVersion = 0,
+  audioCacheBytes = 0;
+function narrationText(entry?: Game['history'][number]) {
+  const frame = entry?.after ?? game;
+  let text = !entry
+    ? '欢迎来到掼蛋人工智能俱乐部，解说声音已开启。'
+    : entry.seat < 0
+      ? `第${frame.round}局，${frame.tributeKind === 'anti' ? '两张大王，抗贡成功' : frame.tributeKind === 'double' ? '双贡还贡已完成' : '单贡还贡已完成'}。${agents[frame.turn].name}先出牌。`
+      : spokenMove(agents[entry.seat].name, entry.move);
+  if (entry?.after?.settlement) {
+    const result = entry.after.settlement;
+    text += result.passedA
+      ? '胜方成功打过尖，本场比赛结束。'
+      : result.demotedTeam !== undefined
+        ? '三次过尖未成功，尝试方降回二。'
+        : result.failedA
+          ? '本次未能过尖。'
+          : `本局结束，头游一方升${result.upgrade}级。`;
+  }
+  return text;
+}
+async function narrationAudio(text: string, onChunk?: (audio: Buffer) => void): Promise<Buffer> {
+  const id = `${audioVersion}:${text}`;
+  const cached = audioCache.get(id);
+  if (cached) {
+    audioCache.delete(id);
+    audioCache.set(id, cached);
+    return cached;
+  }
+  const existing = audioRequests.get(id);
+  if (existing) {
+    const stream = audioStreams.get(id);
+    if (stream && onChunk) {
+      for (const chunk of stream.chunks) onChunk(chunk);
+      stream.listeners.add(onChunk);
+    }
+    try {
+      return await existing;
+    } finally {
+      if (onChunk) stream?.listeners.delete(onChunk);
+    }
+  }
+  if (audioRequests.size >= 8) throw Error('解说队列繁忙');
+  const stream = { chunks: [] as Buffer[], listeners: new Set<(audio: Buffer) => void>() };
+  if (onChunk) stream.listeners.add(onChunk);
+  audioStreams.set(id, stream);
+  const publish = (chunk: Buffer) => {
+    stream.chunks.push(chunk);
+    for (const listener of stream.listeners) listener(chunk);
+  };
+  const pending = (async () => {
+    let generated: Buffer;
+    if (narration.engine === 'api' && narration.apiKey) {
+      try {
+        const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${narration.apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: narration.model,
+            voice: narration.voice,
+            input: text,
+            response_format: 'mp3',
+            speed: 0.92,
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/'))
+          throw Error('voice service failed');
+        generated = Buffer.from(await response.arrayBuffer());
+        if (generated.length < 1 || generated.length > 2000000) throw Error('invalid audio');
+      } catch {
+        generated = await naturalNarration(text, publish);
+      }
+    } else {
+      generated = await naturalNarration(text, publish);
+    }
+    while (
+      audioCache.size &&
+      (audioCache.size >= 256 || audioCacheBytes + generated.length > 16 * 1024 * 1024)
+    ) {
+      const oldest = audioCache.keys().next().value!;
+      audioCacheBytes -= audioCache.get(oldest)!.length;
+      audioCache.delete(oldest);
+    }
+    audioCacheBytes += generated.length;
+    audioCache.set(id, generated);
+    return generated;
+  })();
+  audioRequests.set(id, pending);
+  try {
+    return await pending;
+  } finally {
+    audioRequests.delete(id);
+    audioStreams.delete(id);
+  }
+}
 app.get('/api/narration', async (q, r) => {
   if (!access.viewer(q)) {
     r.sendStatus(401);
@@ -234,46 +353,34 @@ app.get('/api/narration', async (q, r) => {
   const seq = Number(q.query.seq),
     entry = game.history.find((e) => e.seq === seq);
   const welcome = q.query.welcome === '1';
-  if (!welcome && (!entry || seq < game.history.length - 12 || entry.seat < 0 || q.query.game !== game.id)) {
+  if (!welcome && (!entry || seq < game.history.length - 12 || q.query.game !== game.id)) {
     r.status(404).json({ error: '解说已过期' });
     return;
   }
-  const id = welcome ? `${audioVersion}:welcome` : `${audioVersion}:${game.id}:${seq}`;
-  const text = welcome ? '欢迎来到掼蛋人工智能俱乐部，解说声音已开启。' : spokenMove(agents[entry!.seat].name, entry!.move);
+  let streaming = false;
   try {
-    let audio = audioCache.get(id);
-    if (!audio) {
-      let pending = audioRequests.get(id);
-      if (!pending) {
-        pending = (async () => {
-          let generated: Buffer;
-          if (narration.engine === 'api' && narration.apiKey) {
-            try {
-              const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${narration.apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: narration.model, voice: narration.voice, input: text, response_format: 'mp3', speed: 0.92 }),
-                signal: AbortSignal.timeout(8000),
-              });
-              if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/')) throw Error('voice service failed');
-              generated = Buffer.from(await response.arrayBuffer());
-              if (generated.length < 1 || generated.length > 2000000) throw Error('invalid audio');
-            } catch { generated = await naturalNarration(text); }
-          } else { generated = await naturalNarration(text); }
-          if (audioCache.size >= 24) audioCache.delete(audioCache.keys().next().value!);
-          audioCache.set(id, generated);
-          return generated;
-        })();
-        audioRequests.set(id, pending);
+    const audio = await narrationAudio(narrationText(welcome ? undefined : entry), (chunk) => {
+      if (r.destroyed || r.writableEnded) return;
+      if (!streaming) {
+        r.set({
+          'Cache-Control': 'private, max-age=60, no-transform',
+          'X-Accel-Buffering': 'no',
+        }).type('audio/mpeg');
+        streaming = true;
       }
-      try {
-        audio = await pending;
-      } finally {
-        audioRequests.delete(id);
-      }
-    }
-    r.set('Cache-Control', 'private, max-age=60').type(audio.toString('ascii', 0, 4) === 'RIFF' ? 'audio/wav' : 'audio/mpeg').send(audio);
+      r.write(chunk);
+    });
+    if (r.destroyed) return;
+    if (streaming) r.end();
+    else
+      r.set('Cache-Control', 'private, max-age=60')
+        .type(audio.toString('ascii', 0, 4) === 'RIFF' ? 'audio/wav' : 'audio/mpeg')
+        .send(audio);
   } catch {
+    if (r.headersSent) {
+      r.destroy();
+      return;
+    }
     r.status(502).json({ error: '中文解说生成失败，请管理员检查语音服务网络与依赖' });
   }
 });
@@ -321,6 +428,7 @@ app.post('/api/control', async (q, r) => {
         .strict()
         .parse(q.body.presentation);
       presentation = { ...presentation, ...settings };
+      if (presentation.speech) void narrationAudio(narrationText()).catch(() => {});
       broadcast();
       r.json(snapshot());
       return;
@@ -507,6 +615,7 @@ app.put('/api/config', async (q, r) => {
     if (!autoNext) nextRoundAt = null;
     narration = updatedNarration;
     audioCache.clear();
+    audioCacheBytes = 0;
     audioVersion++;
     broadcast();
     r.json({ ok: true });

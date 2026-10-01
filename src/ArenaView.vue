@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ArenaScene from './ArenaScene.vue';
-import { gameFrame, rankName, type PublicGame } from '../shared/types';
+import { gameFrame, rankName, cardName, type PublicGame } from '../shared/types';
 import { replaySession } from './replay';
 import { admin, sharePath } from './auth';
 import './arena.css';
@@ -26,23 +26,71 @@ audio.preload = 'auto';
 audio.playbackRate = 1;
 audio.defaultPlaybackRate = 1;
 audio.preservesPitch = true;
-const audioQueue: string[] = [];
-let playingAudio = false;
-function stopNarration() { audioQueue.length = 0; playingAudio = false; audio.pause(); }
-function playNextNarration() {
-  const url = audioQueue.shift();
-  if (!url) { playingAudio = false; return; }
+type AudioClip = {
+  url: string;
+  created: number;
+  preload: HTMLAudioElement;
+  ready: Promise<void>;
+  dropped: boolean;
+  failed: boolean;
+};
+const audioQueue: AudioClip[] = [];
+const clips = new Set<AudioClip>();
+let playingAudio = false,
+  audioGeneration = 0,
+  activeClip: AudioClip | undefined;
+function releaseClip(clip: AudioClip) {
+  clip.dropped = true;
+  clip.preload.pause();
+  clip.preload.removeAttribute('src');
+  clip.preload.load();
+  clips.delete(clip);
+}
+function stopNarration() {
+  audioGeneration++;
+  audioQueue.length = 0;
+  playingAudio = false;
+  audio.pause();
+  for (const clip of clips) releaseClip(clip);
+  activeClip = undefined;
+}
+async function playNextNarration() {
+  const clip = audioQueue.shift();
+  if (!clip) {
+    playingAudio = false;
+    return;
+  }
   playingAudio = true;
+  activeClip = clip;
+  const generation = audioGeneration;
+  await clip.ready;
+  if (generation !== audioGeneration) return;
+  if (clip.dropped || Date.now() - clip.created > 8000) {
+    releaseClip(clip);
+    activeClip = undefined;
+    void playNextNarration();
+    return;
+  }
+  if (clip.failed) {
+    stopNarration();
+    speechReady.value = false;
+    audioError.value = '解说生成失败，请点击重试开启声音。';
+    return;
+  }
   audio.playbackRate = 1;
-  audio.src = url;
+  audio.src = clip.url;
   void audio.play().catch((error) => {
-    if (error?.name === 'AbortError') return;
+    if (error?.name === 'AbortError' || generation !== audioGeneration) return;
     stopNarration();
     speechReady.value = false;
     audioError.value = '解说播放失败，请点击重试开启声音。';
   });
 }
-audio.onended = playNextNarration;
+audio.onended = () => {
+  if (activeClip) releaseClip(activeClip);
+  activeClip = undefined;
+  void playNextNarration();
+};
 function narrationUrl(parameters: string) {
   return `/api/narration${spectatorQuery.value || '?'}${spectatorQuery.value ? '&' : ''}${parameters}`;
 }
@@ -64,10 +112,24 @@ async function enableBroadcastAudio() {
 }
 function speakEntry(entry: NonNullable<PublicGame['history'][number]>) {
   if (!view.value) return;
-  // Keep a short live queue so rapid turns neither interrupt speech nor build a long delay.
-  if (audioQueue.length >= 3) audioQueue.shift();
-  audioQueue.push(narrationUrl(`game=${encodeURIComponent(view.value.id)}&seq=${entry.seq}`));
-  if (!playingAudio) playNextNarration();
+  // Prepare immediately, while the previous clip plays. Keep only the newest waiting turn.
+  for (const old of audioQueue.splice(0)) releaseClip(old);
+  const url = narrationUrl(`game=${encodeURIComponent(view.value.id)}&seq=${entry.seq}`);
+  const preload = new Audio();
+  preload.preload = 'auto';
+  preload.src = url;
+  const clip: AudioClip = {
+    url,
+    created: Date.now(),
+    preload,
+    ready: Promise.resolve(),
+    dropped: false,
+    failed: false,
+  };
+  clips.add(clip);
+  preload.load();
+  audioQueue.push(clip);
+  if (!playingAudio) void playNextNarration();
 }
 const playerAnchors = ref<{ x: number; y: number }[]>([]);
 function playerLabelStyle(seat: number) {
@@ -257,8 +319,7 @@ onMounted(async () => {
       speechReady.value &&
       broadcastMode.value &&
       entry &&
-      entry.seq > spokenSeq &&
-      entry.seat >= 0
+      entry.seq > spokenSeq
     ) {
       spokenSeq = entry.seq;
       speakEntry(entry);
@@ -342,6 +403,62 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </header>
+      <details class="table-rules">
+        <summary>本桌规则 ⓘ</summary>
+        <p>顺时针出牌 · 首局近侧座位先手。对家为队友，两副牌每人 27 张。</p>
+        <p>
+          头游搭配二游／三游／末游，升 3／2／1 级，最高到 A。打 A 时队友不能是末游；本队三次尝试不过
+          A 降回 2。
+        </p>
+        <p>单贡末游先出；双贡较大贡牌的进贡者先出；同贡按头游下一座优先。两大王抗贡后头游先出。</p>
+        <p>
+          还贡不大于 10 且不是红桃级牌；无合格牌时还最小非逢人配。顺子、连对和钢板允许 A
+          作最小或最大，不允许绕序。
+        </p>
+        <p>出完后无人接牌，由对家接风。双下提前结算，未出完两位不强行区分三游和末游。</p>
+      </details>
+      <Transition name="rules-event">
+        <section
+          v-if="view.tributeUntil && now < view.tributeUntil"
+          class="tribute-ceremony"
+          aria-live="polite"
+        >
+          <small>第 {{ view.round }} 局 · 打 {{ rankName(view.level) }}</small>
+          <h3>
+            {{
+              view.tributeKind === 'anti'
+                ? '两张大王 · 抗贡成功'
+                : view.tributeKind === 'double'
+                  ? '双下 · 双贡还贡'
+                  : '单贡与还贡'
+            }}
+          </h3>
+          <div v-for="step in view.tributeSteps" :key="step.donor" class="tribute-exchange">
+            <span
+              >{{ view.agents[step.donor].name }}
+              <b :class="{ red: ['H', 'D'].includes(step.offered.suit) }">{{
+                cardName(step.offered)
+              }}</b></span
+            >
+            <em>进贡 →<br />← 还贡</em>
+            <span
+              ><b :class="{ red: ['H', 'D'].includes(step.returned.suit) }">{{
+                cardName(step.returned)
+              }}</b>
+              {{ view.agents[step.receiver].name }}</span
+            >
+          </div>
+          <p v-if="view.tributeKind === 'anti'">进贡方合计持两张大王，免进贡、免还贡。</p>
+          <footer>
+            {{ view.agents[view.turn].name }}先出牌 ·
+            {{ Math.max(0, Math.ceil((view.tributeUntil - now) / 1000)) }} 秒后进入对局
+          </footer>
+        </section>
+        <div v-else-if="view.wind && now - view.wind.at < 4000" class="wind-announcement">
+          ✦ {{ view.agents[view.wind.from].name }}已出完，无人接牌 ·
+          {{ view.agents[view.wind.seat].name }}接风领出
+        </div>
+      </Transition>
       <aside class="match-notice" aria-label="文明观赛声明">
         <strong>禁止赌博</strong>
         <span>AI 掼蛋演示 · 文明观赛</span>
@@ -405,7 +522,25 @@ onBeforeUnmount(() => {
         <span class="result-eyebrow">{{
           view.status === 'match-over' ? 'MATCH COMPLETE' : 'ROUND COMPLETE'
         }}</span>
-        <h2>{{ view.winner === 0 ? '桃色联盟' : '星光联盟' }}获胜 <span>✦</span></h2>
+        <h2>
+          {{ view.agents[view.winner ?? 0].name }} ×
+          {{ view.agents[(view.winner ?? 0) + 2].name }}获胜 <span>✦</span>
+        </h2>
+        <p v-if="view.settlement" class="settlement-explanation">
+          <template v-if="view.settlement.passedA">头游与队友成功过 A，赢得本场比赛。</template>
+          <template v-else-if="view.settlement.failedA"
+            >本局过 A 尝试未成功 · 第 {{ view.settlement.failedA }} 次失败。</template
+          >
+          <template v-else
+            >头游 + {{ ['', '头游', '二游', '三游', '末游'][view.settlement.partnerPlace] }} · 升
+            {{ view.settlement.upgrade }} 级 · {{ rankName(view.settlement.from) }} →
+            {{ rankName(view.settlement.to) }}</template
+          >
+          <strong v-if="view.settlement.demotedTeam !== undefined"
+            >{{ view.agents[view.settlement.demotedTeam].name }}与队友三次过 A 未成功，降回
+            2。</strong
+          >
+        </p>
         <div class="finish-order">
           <div v-for="(seat, i) in view.finished" :key="seat">
             <small>{{
@@ -480,7 +615,17 @@ onBeforeUnmount(() => {
           <small>{{ e.source }}{{ e.error ? ' · 已兜底' : '' }}</small>
         </article>
       </aside>
-      <div v-if="view.tribute.length" class="match-tribute">{{ view.tribute.join('；') }}</div>
+      <div v-if="view.tribute.length" class="match-tribute">
+        {{
+          view.tributeKind === 'anti'
+            ? '两大王抗贡'
+            : view.tributeKind === 'double'
+              ? '双贡还贡已完成'
+              : '单贡还贡已完成'
+        }}
+        · {{ view.agents[view.turn].name
+        }}{{ view.tributeUntil && now < view.tributeUntil ? '先出' : '轮到出牌' }}
+      </div>
       <footer v-if="!broadcastMode" class="match-controls">
         <button :disabled="pending" @click="action('restart')">↻ 重新开始</button>
         <button @click="setPresentation({ showFeed: !showFeed })">

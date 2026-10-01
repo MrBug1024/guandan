@@ -166,7 +166,11 @@ test(
         const wav = Buffer.from(await welcome.arrayBuffer());
         assert.ok(wav.toString('ascii', 0, 3) === 'ID3' || wav[0] === 0xff);
         assert.ok(wav.length > 1000);
-        assert.deepEqual(Buffer.from(await (await request(welcomePath)).arrayBuffer()), wav, 'welcome audio is cached');
+        assert.deepEqual(
+          Buffer.from(await (await request(welcomePath)).arrayBuffer()),
+          wav,
+          'welcome audio is cached',
+        );
       }
       const withAudio = await (await request('config', undefined, true)).json();
       withAudio.narration = {
@@ -183,6 +187,17 @@ test(
       assert.equal((await request(audioPath)).status, 200);
       assert.equal((await request(audioPath)).status, 200);
       assert.equal(ttsCalls, 1, 'multiple viewers reuse generated audio');
+      await request('control', { action: 'presentation', presentation: { speech: true } }, true);
+      for (let i = 0; i < 50 && ttsCalls < 2; i++) await new Promise((r) => setTimeout(r, 10));
+      assert.equal(
+        ttsCalls,
+        2,
+        'enabling speech prepares welcome audio before a viewer requests it',
+      );
+      assert.equal((await request(`narration?share=${share}&welcome=1`)).status, 200);
+      assert.equal(ttsCalls, 2, 'viewer receives the prepared welcome without regenerating it');
+      await request('control', { action: 'presentation', presentation: { speech: false } }, true);
+
       assert.ok(
         !JSON.stringify(await (await request('config', undefined, true)).json()).includes(
           'test-tts-secret',

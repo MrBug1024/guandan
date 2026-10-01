@@ -71,6 +71,21 @@ export interface Game {
   history: Entry[];
   revision: number;
   tribute: string[];
+  aFailures?: [number, number];
+  settlement?: {
+    team: number;
+    partnerPlace: number;
+    upgrade: number;
+    from: number;
+    to: number;
+    passedA: boolean;
+    failedA: number;
+    demotedTeam?: number;
+  };
+  tributeSteps?: { donor: number; receiver: number; offered: Card; returned: Card }[];
+  tributeKind?: 'single' | 'double' | 'anti';
+  tributeUntil?: number;
+  wind?: { seat: number; from: number; at: number };
 }
 export interface PublicGame extends Omit<Game, 'hands'> {
   narration?: { engine: 'browser' | 'api'; ready: boolean };
@@ -98,7 +113,11 @@ export type GameFrame = Pick<
   | 'round'
   | 'revision'
   | 'tribute'
-> & { counts: number[] };
+> &
+  Pick<
+    Game,
+    'aFailures' | 'settlement' | 'tributeSteps' | 'tributeKind' | 'tributeUntil' | 'wind'
+  > & { counts: number[] };
 export function gameFrame(g: Game): GameFrame {
   return structuredClone({
     turn: g.turn,
@@ -112,6 +131,12 @@ export function gameFrame(g: Game): GameFrame {
     round: g.round,
     revision: g.revision,
     tribute: g.tribute,
+    aFailures: g.aFailures,
+    settlement: g.settlement,
+    tributeSteps: g.tributeSteps,
+    tributeKind: g.tributeKind,
+    tributeUntil: g.tributeUntil,
+    wind: g.wind,
     counts: g.hands.map((h) => h.length),
   });
 }

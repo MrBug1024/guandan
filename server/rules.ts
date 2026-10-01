@@ -1,5 +1,13 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import { cardName, rankName, type Card, type Game, type Kind, type Move } from '../shared/types.js';
+import {
+  cardName,
+  rankName,
+  gameFrame,
+  type Card,
+  type Game,
+  type Kind,
+  type Move,
+} from '../shared/types.js';
 export const power = (r: number, level: number) => (r >= 15 ? r + 2 : r === level ? 16 : r);
 export const wild = (c: Card, l: number) => c.suit === 'H' && c.rank === l;
 const names: Record<Kind, string> = {
@@ -169,6 +177,8 @@ export function newGame(): Game {
     history: [],
     revision: 0,
     tribute: [],
+    aFailures: [0, 0],
+    tributeSteps: [],
   };
 }
 function nextActive(g: Game, seat: number): number {
@@ -201,15 +211,41 @@ export function applyMove(g: Game, id: string): Move {
     const team = g.finished[0] % 2;
     const partnerRank = g.finished.indexOf((g.finished[0] + 2) % 4);
     g.winner = team;
-    if (g.level === 14 && g.levels[team] === 14 && partnerRank <= 2) {
+    const upgrade = partnerRank === 1 ? 3 : partnerRank === 2 ? 2 : 1;
+    const from = g.levels[team];
+    const passedA = g.level === 14 && from === 14 && partnerRank <= 2;
+    g.aFailures ??= [0, 0];
+    let failedA = 0,
+      demotedTeam: number | undefined;
+    if (passedA) {
       g.status = 'match-over';
     } else {
-      g.levels[team] = Math.min(
-        14,
-        g.levels[team] + (partnerRank === 1 ? 3 : partnerRank === 2 ? 2 : 1),
-      );
+      // The team whose level selected this deal is the side attempting A.
+      const attemptingTeam = g.previous.length ? g.previous[0] % 2 : team;
+      if (g.level === 14 && g.levels[attemptingTeam] === 14) {
+        failedA = ++g.aFailures[attemptingTeam];
+        if (failedA >= 3) {
+          demotedTeam = attemptingTeam;
+          g.levels[attemptingTeam] = 2;
+          g.aFailures[attemptingTeam] = 0;
+        }
+      }
+      if (demotedTeam !== team) {
+        // Award from the current deal level without lowering an already-earned higher level.
+        g.levels[team] = Math.max(from, Math.min(14, g.level + upgrade));
+      }
       g.status = 'round-over';
     }
+    g.settlement = {
+      team,
+      partnerPlace: partnerRank + 1,
+      upgrade: passedA || g.level === 14 ? 0 : upgrade,
+      from,
+      to: g.levels[team],
+      passedA,
+      failedA,
+      ...(demotedTeam !== undefined ? { demotedTeam } : {}),
+    };
     g.revision++;
     return move;
   }
@@ -218,7 +254,9 @@ export function applyMove(g: Game, id: string): Move {
     let lead = g.lastSeat;
     if (g.finished.includes(lead)) {
       const partner = (lead + 2) % 4;
+      const from = lead;
       lead = g.finished.includes(partner) ? nextActive(g, lead) : partner;
+      g.wind = { seat: lead, from, at: Date.now() };
     }
     g.turn = lead;
     g.last = null;
@@ -243,10 +281,15 @@ export function nextRound(g: Game, hands: Card[][] = deal()): void {
   g.winner = null;
   g.status = 'paused';
   g.tribute = [];
+  g.settlement = undefined;
+  g.wind = undefined;
+  g.tributeSteps = [];
+  g.tributeUntil = Date.now() + 4000;
   g.turn = order[0];
   const double = order[2] % 2 === order[3] % 2;
   const donors = double ? order.slice(2) : [order[3]];
   const bigKings = donors.flatMap((s) => g.hands[s]).filter((c) => c.rank === 16).length;
+  g.tributeKind = bigKings === 2 ? 'anti' : double ? 'double' : 'single';
   if (bigKings === 2) {
     g.tribute.push('抗贡：输方持有两张大王');
     g.turn = order[0];
@@ -280,6 +323,12 @@ export function nextRound(g: Game, hands: Card[][] = deal()): void {
           .sort((a, b) => power(a.rank, g.level) - power(b.rank, g.level))[0];
       return { ...offer, receiver, returned };
     });
+    g.tributeSteps = swaps.map((s) => ({
+      donor: s.seat,
+      receiver: s.receiver,
+      offered: s.card,
+      returned: s.returned,
+    }));
     for (const s of swaps) {
       g.hands[s.seat] = g.hands[s.seat].filter((c) => c.id !== s.card.id);
       g.hands[s.receiver] = g.hands[s.receiver].filter((c) => c.id !== s.returned.id);
@@ -296,6 +345,7 @@ export function nextRound(g: Game, hands: Card[][] = deal()): void {
     seat: -1,
     text: `第 ${g.round} 局，打 ${rankName(g.level)}。${g.tribute.join('；')}`,
     source: '裁判',
+    after: gameFrame(g),
     elapsedMs: 0,
     time: new Date().toISOString(),
   });
