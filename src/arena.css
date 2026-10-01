@@ -252,6 +252,18 @@
   z-index: 4;
   pointer-events: none;
 }
+.broadcast-audio-start {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 10;
+  padding: 10px 16px;
+  border: 1px solid #dec69d;
+  border-radius: 24px;
+  background: #142230;
+  color: #f0ce96;
+  cursor: pointer;
+}
 .hand-heading {
   display: flex;
   align-items: center;

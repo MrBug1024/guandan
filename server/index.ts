@@ -52,8 +52,9 @@ function rememberRound() {
   roundOffset = game.history.length;
 }
 const clients = new Set<express.Response>();
+let presentation = { speech: false, showFeed: false };
 function snapshot(): PublicGame {
-  return publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt });
+  return { ...publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt }), presentation };
 }
 function broadcast() {
   const data = `data: ${JSON.stringify(snapshot())}\n\n`;
@@ -203,6 +204,13 @@ app.use('/api', (q, r, next) => {
 });
 app.post('/api/control', async (q, r) => {
   try {
+    if (q.body.action === 'presentation') {
+      const settings = z.object({ speech: z.boolean().optional(), showFeed: z.boolean().optional() }).strict().parse(q.body.presentation);
+      presentation = { ...presentation, ...settings };
+      broadcast();
+      r.json(snapshot());
+      return;
+    }
     const { action } = z
       .object({ action: z.enum(['start', 'pause', 'step', 'reset', 'next']) })
       .parse(q.body);

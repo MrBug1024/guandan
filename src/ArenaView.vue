@@ -13,10 +13,18 @@ const route = useRoute(),
 const pending = ref(false),
   toast = ref(''),
   showFeed = ref(false),
-  speech = ref(sessionStorage.getItem('arena-speech') === '1'),
+  speech = ref(false),
   now = ref(Date.now()),
   viewportWidth = ref(innerWidth);
 const replayIndex = ref(replaySession.value?.game.history.length ?? 0);
+const speechReady = ref(false);
+function enableBroadcastAudio() {
+  const voice = new SpeechSynthesisUtterance('直播解说已开启');
+  voice.lang = 'zh-CN';
+  voice.onerror = (event) => { if (event.error === 'not-allowed') speechReady.value = false; };
+  speechSynthesis.speak(voice);
+  speechReady.value = true;
+}
 const playerAnchors = ref<{ x: number; y: number }[]>([]);
 function playerLabelStyle(seat: number) {
   const anchor = playerAnchors.value[seat];
@@ -41,7 +49,9 @@ let stream: EventSource,
   toastTimer: ReturnType<typeof setTimeout>;
 let spokenSeq = -1,
   spokenGame = '';
-watch(speech, (value) => sessionStorage.setItem('arena-speech', value ? '1' : '0'));
+async function setPresentation(settings: { speech?: boolean; showFeed?: boolean }) {
+  await action('presentation', settings);
+}
 const view = computed<PublicGame | undefined>(() => {
   const r = replaySession.value;
   if (!r) return state.value;
@@ -99,7 +109,7 @@ function notify(message: string) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ''), 4500);
 }
-async function action(name: string) {
+async function action(name: string, presentation?: { speech?: boolean; showFeed?: boolean }) {
   if (replaySession.value) return;
   pending.value = true;
   try {
@@ -110,7 +120,7 @@ async function action(name: string) {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ action: name }),
+      body: JSON.stringify({ action: name, ...(presentation ? { presentation } : {}) }),
     });
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
@@ -146,20 +156,25 @@ onMounted(() => {
   stream.onmessage = (e) => {
     state.value = JSON.parse(e.data);
     connected.value = true;
+    speech.value = state.value?.presentation?.speech ?? false;
+    showFeed.value = state.value?.presentation?.showFeed ?? false;
+    if (!speech.value) speechSynthesis.cancel();
     const entry = state.value?.history.at(-1);
     if (spokenGame !== state.value?.id) {
       spokenGame = state.value?.id ?? '';
       spokenSeq = entry?.seq ?? -1;
     }
-    if (speech.value && entry && entry.seq > spokenSeq && entry.seat >= 0) {
+    if (speech.value && speechReady.value && broadcastMode.value && entry && entry.seq > spokenSeq && entry.seat >= 0) {
       spokenSeq = entry.seq;
       const voice = new SpeechSynthesisUtterance(
         `${state.value!.agents[entry.seat].name}，${entry.move?.label ?? ''}`,
       );
       voice.lang = 'zh-CN';
+      voice.onerror = (event) => { if (event.error === 'not-allowed') speechReady.value = false; };
       speechSynthesis.cancel();
       speechSynthesis.speak(voice);
     }
+    if (entry) spokenSeq = entry.seq;
   };
   stream.onerror = () => (connected.value = false);
 });
@@ -193,6 +208,7 @@ onBeforeUnmount(() => {
         @anchors="playerAnchors = $event"
       />
       <div class="room-vignette"></div>
+      <button v-if="broadcastMode && speech && !speechReady" class="broadcast-audio-start" @click="enableBroadcastAudio">🔊 开启直播声音</button>
       <header class="match-header">
         <div class="match-brand">
           <span class="club-mark">g</span>
@@ -342,7 +358,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <aside v-if="showFeed" class="match-feed">
-        <h2>牌桌动态 <button @click="showFeed = false">×</button></h2>
+        <h2>牌桌动态 <button v-if="!broadcastMode" @click="setPresentation({ showFeed: false })">×</button></h2>
         <article v-for="e in recent" :key="e.seq">
           <strong :style="{ color: e.seat < 0 ? '#dec69d' : colors[e.seat] }"
             >{{ e.seat < 0 ? '裁判' : view.agents[e.seat].name }}
@@ -354,7 +370,7 @@ onBeforeUnmount(() => {
       </aside>
       <div v-if="view.tribute.length" class="match-tribute">{{ view.tribute.join('；') }}</div>
       <footer v-if="!broadcastMode" class="match-controls">
-        <button @click="showFeed = !showFeed">☷ {{ showFeed ? '收起' : '对局动态' }}</button
+        <button @click="setPresentation({ showFeed: !showFeed })">☷ {{ showFeed ? '收起' : '对局动态' }}</button
         ><button
           :disabled="
             pending ||
@@ -372,7 +388,7 @@ onBeforeUnmount(() => {
           @click="action(view.status === 'running' || countdown !== null ? 'pause' : 'start')"
         >
           {{ view.status === 'running' || countdown !== null ? 'Ⅱ 暂停' : '▶ 继续对局' }}</button
-        ><label><input type="checkbox" v-model="speech" /> 解说</label
+        ><label><input type="checkbox" :checked="speech" @change="setPresentation({ speech: ($event.target as HTMLInputElement).checked })" /> 直播解说</label
         ><span>{{ view.autoNext ? '↻ 连续对局' : '单局模式' }}</span>
       </footer>
       <div v-if="replaySession" class="match-replay">

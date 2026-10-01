@@ -63,6 +63,7 @@ export interface Game {
   tribute: string[];
 }
 export interface PublicGame extends Omit<Game, 'hands'> {
+  presentation?: { speech: boolean; showFeed: boolean };
   counts: number[];
   hands?: Card[][];
   agents: AgentConfig[];
