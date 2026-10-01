@@ -33,11 +33,15 @@ JEV 仍是四个选手自主调用的辅助工具。服务器能否访问 `http:
 
 网页音频通常需要用户点击才能获得浏览器播放许可。声音不需要申请麦克风、相机或定位；这些权限不能解决播放限制。[浏览器自动播放规则](https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Autoplay)解释了这个机制。
 
-解说不再依赖浏览器 speechSynthesis，也不再提供“解说方式”选择。默认服务器生成中文 WAV，所有观众使用同一个 HTMLAudioElement 播放，无需额外语音 Key。基础音色为合成语音，Linux 使用 eSpeak NG，Windows 开发环境使用已安装的中文系统音色；旧版已配置的音频服务仍兼容，服务失败自动回退基础音色。
+解说统一使用真实音频播放，不再依赖浏览器 speechSynthesis。默认音色改为 `zh-CN-XiaoxiaoNeural` 普通话女声，语速 `-8%`，播放固定 `1×`。口播独立于可视牌面，J/Q/K/A 读作“勾／圈／凯／尖”，花色读中文，对子、三带二等用简洁中文说明，不逐张朗读重复牌面。连续播报排队播放，最多保留三条待播，不能通过加速追赶直播。
 
-**部署必须重新构建镜像**，不能只更新 dist：deploy/Dockerfile 已加入 espeak-ng。非 Docker Linux 部署执行 `apt-get update && apt-get install -y espeak-ng`，用 `espeak-ng --voices=cmn` 确认中文音色。保留原 data 持久卷。启动后管理员开启直播解说，观众点击开启声音，应该立即听到有声欢迎提示；实际播放成功后才显示已开启。此请求不再用静音文件假装开启成功。
+**必须重新构建 deploy/Dockerfile 镜像**，不能只更新 dist。镜像加入 Python 隔离环境 `/opt/voice` 与 `edge-tts==7.2.8`，无需额外 Key。服务器通过社区 edge-tts 客户端访问 Edge 在线语音服务（不是微软官方 SDK）；仅发送解说文本，服务可用性取决于服务器出网。默认不再使用 eSpeak，在线音色失败时提示重试，不静默变成机械音色。旧版已配置的 TTS 接口仍兼容，失败后尝试新的默认音色。
 
-真实手机验收：微信、QQ、系统浏览器分别打开分享链接，点击开启后听到欢迎提示、随后听到出牌播报；关闭解说应立即停止。测试媒体音量、重新加载后重试及锁屏恢复。Windows 已实测生成真实 WAV；Linux 容器和真实手机须部署后验收，不能以桌面构建通过替代。OBS 需开启音频捕获。
+非 Docker Linux 安装：`apt-get install -y python3 python3-venv ca-certificates`，`python3 -m venv /opt/voice`，`/opt/voice/bin/pip install edge-tts==7.2.8`。开发环境可在项目内创建 `tmp/voice-venv` 并安装同一版本；自定义解释器路径可使用 `NARRATION_PYTHON`，此变量不含凭证。
+
+部署 AI 验收：在运行容器内执行 `/opt/voice/bin/python -m edge_tts --voice zh-CN-XiaoxiaoNeural --rate=-8% --text "桃桃打出一对三。" --write-media /tmp/voice-check.mp3`，确认生成 MP3；遇到失败检查服务器到在线语音服务的 HTTPS/WebSocket 出网，不能改回 eSpeak 后宣称恢复自然解说。保留原 data 卷。观众点击开启后，应听到自然中文欢迎提示；仅播放成功才显示开启。
+
+真实手机验收：微信、QQ、系统浏览器分别点击开启，听欢迎提示及后续播报，确认语速正常、没有英文牌面读法；关闭解说立即停止。本地已真实生成自然中文 MP3并验证欢迎音频接口和缓存；未在真实手机或 Linux 生产容器验收。OBS 需开启音频捕获。
 
 ## 重开比赛
 
@@ -54,7 +58,7 @@ JEV 仍是四个选手自主调用的辅助工具。服务器能否访问 `http:
 7. 在模型思考期间重开比赛，观众出现新手牌，旧动作不会补入新局。
 8. 真实检查四模型、JEV、完整结算和自动续局。前次 GLM 线上连接未通过，需继续排查。
 
-本地验证：27 项测试涵盖登录权限、只读分享、哈希密码、加密配置、Key 删除／保留、TTS 代理缓存及思考期间重开后丢弃旧决策；生产构建通过。真实微信与生产部署后的验收不能用本地测试代替。
+本地验证：29 项测试涵盖登录权限、只读分享、哈希密码、加密配置、Key 删除／保留、中文口播转换、TTS 音频缓存及思考期间重开后丢弃旧决策；生产构建通过。真实微信与生产部署后的验收不能用本地测试代替。
 
 ## 回滚
 

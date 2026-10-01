@@ -23,6 +23,9 @@ const speechReady = ref(false);
 const audioError = ref('');
 const audio = new Audio();
 audio.preload = 'auto';
+audio.playbackRate = 1;
+audio.defaultPlaybackRate = 1;
+audio.preservesPitch = true;
 const audioQueue: string[] = [];
 let playingAudio = false;
 function stopNarration() { audioQueue.length = 0; playingAudio = false; audio.pause(); }
@@ -30,6 +33,7 @@ function playNextNarration() {
   const url = audioQueue.shift();
   if (!url) { playingAudio = false; return; }
   playingAudio = true;
+  audio.playbackRate = 1;
   audio.src = url;
   void audio.play().catch((error) => {
     if (error?.name === 'AbortError') return;

@@ -349,7 +349,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
         <div class="settings-bottom">
-          <p class="subtle">解说统一通过音频播放，观众点击开启声音即可。服务器内置基础中文解说，无需另配 Key。</p>
+          <p class="subtle">解说统一通过音频播放，观众点击开启声音即可。使用自然普通话音色，无需另配 Key。</p>
           <label
             >行动间隔<select v-model.number="speed">
               <option :value="600">0.6 秒 · 快速测试</option>

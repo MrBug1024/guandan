@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
-import { localNarration } from './narration.js';
+import { naturalNarration, spokenMove } from './narration.js';
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -239,7 +239,7 @@ app.get('/api/narration', async (q, r) => {
     return;
   }
   const id = welcome ? `${audioVersion}:welcome` : `${audioVersion}:${game.id}:${seq}`;
-  const text = welcome ? '欢迎来到掼蛋 AI 俱乐部，解说声音已开启' : `${agents[entry!.seat].name}，${entry!.move?.label ?? '不出'}`;
+  const text = welcome ? '欢迎来到掼蛋人工智能俱乐部，解说声音已开启。' : spokenMove(agents[entry!.seat].name, entry!.move);
   try {
     let audio = audioCache.get(id);
     if (!audio) {
@@ -252,14 +252,14 @@ app.get('/api/narration', async (q, r) => {
               const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${narration.apiKey}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model: narration.model, voice: narration.voice, input: text, response_format: 'mp3' }),
+                body: JSON.stringify({ model: narration.model, voice: narration.voice, input: text, response_format: 'mp3', speed: 0.92 }),
                 signal: AbortSignal.timeout(8000),
               });
               if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/')) throw Error('voice service failed');
               generated = Buffer.from(await response.arrayBuffer());
               if (generated.length < 1 || generated.length > 2000000) throw Error('invalid audio');
-            } catch { generated = await localNarration(text); }
-          } else { generated = await localNarration(text); }
+            } catch { generated = await naturalNarration(text); }
+          } else { generated = await naturalNarration(text); }
           if (audioCache.size >= 24) audioCache.delete(audioCache.keys().next().value!);
           audioCache.set(id, generated);
           return generated;
@@ -274,7 +274,7 @@ app.get('/api/narration', async (q, r) => {
     }
     r.set('Cache-Control', 'private, max-age=60').type(audio.toString('ascii', 0, 4) === 'RIFF' ? 'audio/wav' : 'audio/mpeg').send(audio);
   } catch {
-    r.status(502).json({ error: '音频生成失败，请管理员检查服务器中文语音依赖' });
+    r.status(502).json({ error: '中文解说生成失败，请管理员检查语音服务网络与依赖' });
   }
 });
 app.get('/api/state', (_q, r) => r.json(snapshot()));
