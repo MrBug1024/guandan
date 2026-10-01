@@ -23,91 +23,47 @@ const speechReady = ref(false);
 const audioError = ref('');
 const audio = new Audio();
 audio.preload = 'auto';
-let unlockUrl = '';
-function stopNarration() {
-  audio.pause();
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
+const audioQueue: string[] = [];
+let playingAudio = false;
+function stopNarration() { audioQueue.length = 0; playingAudio = false; audio.pause(); }
+function playNextNarration() {
+  const url = audioQueue.shift();
+  if (!url) { playingAudio = false; return; }
+  playingAudio = true;
+  audio.src = url;
+  void audio.play().catch((error) => {
+    if (error?.name === 'AbortError') return;
+    stopNarration();
+    speechReady.value = false;
+    audioError.value = '解说播放失败，请点击重试开启声音。';
+  });
 }
-function silentAudio() {
-  const bytes = new Uint8Array(844),
-    data = new DataView(bytes.buffer);
-  const text = (offset: number, value: string) =>
-    [...value].forEach((c, i) => data.setUint8(offset + i, c.charCodeAt(0)));
-  text(0, 'RIFF');
-  data.setUint32(4, 836, true);
-  text(8, 'WAVE');
-  text(12, 'fmt ');
-  data.setUint32(16, 16, true);
-  data.setUint16(20, 1, true);
-  data.setUint16(22, 1, true);
-  data.setUint32(24, 8000, true);
-  data.setUint32(28, 8000, true);
-  data.setUint16(32, 1, true);
-  data.setUint16(34, 8, true);
-  text(36, 'data');
-  data.setUint32(40, 800, true);
-  bytes.fill(128, 44);
-  return URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+audio.onended = playNextNarration;
+function narrationUrl(parameters: string) {
+  return `/api/narration${spectatorQuery.value || '?'}${spectatorQuery.value ? '&' : ''}${parameters}`;
 }
 async function enableBroadcastAudio() {
+  stopNarration();
   audioError.value = '';
-  if (view.value?.narration?.engine === 'api') {
-    if (!view.value.narration.ready) {
-      audioError.value = '管理员尚未配置音频服务，请稍后重试。';
-      return;
-    }
-    try {
-      unlockUrl ||= silentAudio();
-      audio.src = unlockUrl;
-      await audio.play();
-      speechReady.value = true;
-    } catch {
-      audioError.value = '声音未开启，请检查媒体音量后再次点击。';
-    }
-    return;
-  }
-  if (!('speechSynthesis' in window)) {
-    audioError.value =
-      '当前微信浏览器不支持系统语音。请管理员启用音频服务解说，或在系统浏览器观看。';
-    return;
-  }
-  const voice = new SpeechSynthesisUtterance('直播解说已开启');
-  voice.lang = 'zh-CN';
-  voice.onstart = () => {
+  playingAudio = true;
+  audio.muted = false;
+  audio.volume = 1;
+  audio.src = narrationUrl('welcome=1');
+  try {
+    await audio.play();
     speechReady.value = true;
-    audioError.value = '';
-  };
-  voice.onerror = (event) => {
-    if (event.error === 'canceled' || event.error === 'interrupted') return;
+  } catch {
+    playingAudio = false;
     speechReady.value = false;
-    audioError.value = '系统语音不可用，请重试或让管理员启用音频服务。';
-  };
-  speechSynthesis.speak(voice);
+    audioError.value = '声音未能播放，请检查媒体音量并重试；持续失败请联系管理员检查音频服务。';
+  }
 }
 function speakEntry(entry: NonNullable<PublicGame['history'][number]>) {
-  if (view.value?.narration?.engine === 'api') {
-    audio.src = `/api/narration${spectatorQuery.value || '?'}${spectatorQuery.value ? '&' : ''}game=${encodeURIComponent(view.value.id)}&seq=${entry.seq}`;
-    const gameId = view.value.id;
-    void audio.play().catch((error) => {
-      if (error?.name === 'AbortError' || view.value?.id !== gameId) return;
-      speechReady.value = false;
-      audioError.value = '解说播放失败，请重试；若持续失败，请管理员检查音频服务。';
-    });
-    return;
-  }
-  if (!('speechSynthesis' in window)) return;
-  const voice = new SpeechSynthesisUtterance(
-    `${state.value!.agents[entry.seat].name}，${entry.move?.label ?? ''}`,
-  );
-  voice.lang = 'zh-CN';
-  voice.onerror = (event) => {
-    if (event.error === 'not-allowed') {
-      speechReady.value = false;
-      audioError.value = '请点击重新开启声音。';
-    }
-  };
-  speechSynthesis.cancel();
-  speechSynthesis.speak(voice);
+  if (!view.value) return;
+  // Keep a short live queue so rapid turns neither interrupt speech nor build a long delay.
+  if (audioQueue.length >= 3) audioQueue.shift();
+  audioQueue.push(narrationUrl(`game=${encodeURIComponent(view.value.id)}&seq=${entry.seq}`));
+  if (!playingAudio) playNextNarration();
 }
 const playerAnchors = ref<{ x: number; y: number }[]>([]);
 function playerLabelStyle(seat: number) {
@@ -313,7 +269,6 @@ onBeforeUnmount(() => {
   clearInterval(clock);
   clearTimeout(toastTimer);
   stopNarration();
-  if (unlockUrl) URL.revokeObjectURL(unlockUrl);
 });
 </script>
 <template>

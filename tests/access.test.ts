@@ -158,6 +158,16 @@ test(
         (await (await request('config', undefined, true)).json()).agents[0].keyConfigured,
         false,
       );
+      if (process.platform === 'win32') {
+        const welcomePath = `narration?share=${share}&welcome=1`;
+        const welcome = await request(welcomePath);
+        assert.equal(welcome.status, 200, 'default narration needs no TTS key');
+        assert.match(welcome.headers.get('content-type')!, /audio\/wav/);
+        const wav = Buffer.from(await welcome.arrayBuffer());
+        assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+        assert.ok(wav.length > 1000);
+        assert.deepEqual(Buffer.from(await (await request(welcomePath)).arrayBuffer()), wav, 'welcome audio is cached');
+      }
       const withAudio = await (await request('config', undefined, true)).json();
       withAudio.narration = {
         engine: 'api',

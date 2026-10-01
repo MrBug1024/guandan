@@ -10,7 +10,7 @@ ENV NODE_ENV=production
 # container. node:22-bookworm-slim ships without curl/wget, so install curl
 # (slim, no recommends) to make the platform healthcheck pass.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
 # Install ALL dependencies. tsx (runtime) and vite/vue-tsc/typescript (build)

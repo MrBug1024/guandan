@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import { localNarration } from './narration.js';
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -71,8 +72,8 @@ function snapshot(): PublicGame {
     ...publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt }),
     presentation,
     narration: {
-      engine: narration.engine,
-      ready: narration.engine === 'browser' || Boolean(narration.apiKey),
+      engine: 'api',
+      ready: true,
     },
   };
 }
@@ -230,41 +231,35 @@ app.get('/api/narration', async (q, r) => {
     r.sendStatus(401);
     return;
   }
-  if (narration.engine !== 'api' || !narration.apiKey) {
-    r.status(503).json({ error: '管理员尚未配置音频解说服务' });
-    return;
-  }
   const seq = Number(q.query.seq),
     entry = game.history.find((e) => e.seq === seq);
-  if (!entry || seq < game.history.length - 12 || entry.seat < 0 || q.query.game !== game.id) {
+  const welcome = q.query.welcome === '1';
+  if (!welcome && (!entry || seq < game.history.length - 12 || entry.seat < 0 || q.query.game !== game.id)) {
     r.status(404).json({ error: '解说已过期' });
     return;
   }
-  const id = `${audioVersion}:${game.id}:${seq}`;
+  const id = welcome ? `${audioVersion}:welcome` : `${audioVersion}:${game.id}:${seq}`;
+  const text = welcome ? '欢迎来到掼蛋 AI 俱乐部，解说声音已开启' : `${agents[entry!.seat].name}，${entry!.move?.label ?? '不出'}`;
   try {
     let audio = audioCache.get(id);
     if (!audio) {
       let pending = audioRequests.get(id);
       if (!pending) {
         pending = (async () => {
-          const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${narration.apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: narration.model,
-              voice: narration.voice,
-              input: `${agents[entry.seat].name}，${entry.move?.label ?? '不出'}`,
-              response_format: 'mp3',
-            }),
-            signal: AbortSignal.timeout(20000),
-          });
-          if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/'))
-            throw Error('音频服务请求失败');
-          const generated = Buffer.from(await response.arrayBuffer());
-          if (generated.length > 2000000) throw Error('音频过大');
+          let generated: Buffer;
+          if (narration.engine === 'api' && narration.apiKey) {
+            try {
+              const response = await fetch(narration.baseUrl.replace(/\/$/, '') + '/audio/speech', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${narration.apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: narration.model, voice: narration.voice, input: text, response_format: 'mp3' }),
+                signal: AbortSignal.timeout(8000),
+              });
+              if (!response.ok || !response.headers.get('content-type')?.startsWith('audio/')) throw Error('voice service failed');
+              generated = Buffer.from(await response.arrayBuffer());
+              if (generated.length < 1 || generated.length > 2000000) throw Error('invalid audio');
+            } catch { generated = await localNarration(text); }
+          } else { generated = await localNarration(text); }
           if (audioCache.size >= 24) audioCache.delete(audioCache.keys().next().value!);
           audioCache.set(id, generated);
           return generated;
@@ -277,9 +272,9 @@ app.get('/api/narration', async (q, r) => {
         audioRequests.delete(id);
       }
     }
-    r.set('Cache-Control', 'private, max-age=60').type('audio/mpeg').send(audio);
+    r.set('Cache-Control', 'private, max-age=60').type(audio.toString('ascii', 0, 4) === 'RIFF' ? 'audio/wav' : 'audio/mpeg').send(audio);
   } catch {
-    r.status(502).json({ error: '音频生成失败，请管理员检查 TTS 服务配置' });
+    r.status(502).json({ error: '音频生成失败，请管理员检查服务器中文语音依赖' });
   }
 });
 app.get('/api/state', (_q, r) => r.json(snapshot()));

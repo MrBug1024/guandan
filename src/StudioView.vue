@@ -31,15 +31,6 @@ async function logout() {
 }
 const icons = ['✿', '◈', '●', '✦'],
   colors = ['#f5adbd', '#a9bbff', '#a8d6bf', '#ffd19a'];
-const narration = ref<{
-  engine: 'browser' | 'api';
-  baseUrl: string;
-  model: string;
-  voice: string;
-  apiKey?: string;
-  keyConfigured?: boolean;
-  deleteKey?: boolean;
-}>({ engine: 'browser', baseUrl: 'https://model.rhzy.ai/v1', model: 'tts-1', voice: 'alloy' });
 let stream: EventSource, clearToast: ReturnType<typeof setTimeout>;
 function notify(text: string) {
   toast.value = text;
@@ -83,7 +74,6 @@ async function fillDraft() {
   try {
     const config = await api('config', 'GET');
     draft.value = config.agents;
-    narration.value = config.narration;
   } catch (error) {
     notify((error as Error).message);
   }
@@ -106,7 +96,6 @@ async function save(enter = false) {
       agents: draft.value,
       delayMs: speed.value,
       autoNext: autoNext.value,
-      narration: narration.value,
     });
     notify('模型配置已保存');
     if (enter) await startArena();
@@ -360,35 +349,7 @@ onBeforeUnmount(() => {
           </article>
         </div>
         <div class="settings-bottom">
-          <label
-            >解说方式<select v-model="narration.engine">
-              <option value="browser">浏览器语音 · 无额外费用</option>
-              <option value="api">音频服务 · 微信兼容</option>
-            </select></label
-          >
-          <template v-if="narration.engine === 'api'">
-            <label>音频服务 Base URL<input v-model="narration.baseUrl" /></label>
-            <label
-              >语音模型<input v-model="narration.model" placeholder="服务商支持的 TTS 模型"
-            /></label>
-            <label>音色<input v-model="narration.voice" /></label>
-            <label
-              >音频服务 API Key<input
-                type="password"
-                v-model="narration.apiKey"
-                :placeholder="
-                  narration.keyConfigured ? '已配置 · 留空保留' : '输入支持 TTS 的服务 Key'
-                "
-                autocomplete="off"
-            /></label>
-            <label class="check"
-              ><input type="checkbox" v-model="narration.deleteKey" /> 删除音频 Key</label
-            >
-            <p class="subtle">
-              需使用支持 /audio/speech
-              的服务；对局模型不一定支持语音生成。观众在微信中点击开启声音后播放。
-            </p>
-          </template>
+          <p class="subtle">解说统一通过音频播放，观众点击开启声音即可。服务器内置基础中文解说，无需另配 Key。</p>
           <label
             >行动间隔<select v-model.number="speed">
               <option :value="600">0.6 秒 · 快速测试</option>
