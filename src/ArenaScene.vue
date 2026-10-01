@@ -621,7 +621,7 @@ onMounted(() => {
       const { width, height } = host.value!.getBoundingClientRect();
       renderer!.setSize(width, height);
       camera.aspect = width / height;
-      const compact = width <= 700;
+      const narrow = camera.aspect < 1.15;
       // Equal-radius camera poses keep the same table proportions at all four seats.
       // Set poses in world space: localToWorld can use stale matrices after a seat change.
       const yaw = [0, -Math.PI / 2, Math.PI, Math.PI / 2][props.viewpointSeat];
@@ -630,16 +630,33 @@ onMounted(() => {
       camera.position.set(Math.sin(yaw) * distance, 2.56, Math.cos(yaw) * distance);
       camera.up.set(0, 1, 0);
       camera.lookAt(0, 1.12, 0);
-      camera.fov = 75;
+      // Keep a useful horizontal field of view in portrait, rather than cropping
+      // the desktop projection to a narrow strip through the table and our hands.
+      camera.fov = narrow
+        ? THREE.MathUtils.radToDeg(
+            2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(50)) / camera.aspect),
+          )
+        : 75;
+      camera.zoom = 1;
       if (overview) {
-        camera.position.set(0, compact ? 8.7 : 7.6, compact ? 9.7 : 9.4);
+        camera.position.set(0, narrow ? 8.2 : 7.6, narrow ? 7.2 : 9.4);
         camera.lookAt(0, 1.1, 0);
-        camera.fov = 44;
-        camera.zoom = Math.min(1, camera.aspect / 1.3);
+        camera.fov = narrow
+          ? THREE.MathUtils.radToDeg(
+              2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(24)) / camera.aspect),
+            )
+          : height < 360
+            ? 36
+            : 44;
       }
       firstPerson.visible = !overview;
-      camera.zoom = 1;
       firstPerson.position.copy(actors[props.viewpointSeat].root.position);
+      // Bring the grip slightly closer on portrait screens so the rank corners
+      // remain legible after widening the view to include the other players.
+      if (narrow)
+        firstPerson.position.add(
+          new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).multiplyScalar(0.16),
+        );
       firstPerson.rotation.y = actors[props.viewpointSeat].root.rotation.y;
       tablePlays.forEach((pile) => {
         pile.userData.yaw = Math.PI + yaw;

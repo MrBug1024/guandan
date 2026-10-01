@@ -138,18 +138,21 @@ function playerLabelStyle(seat: number) {
   seat = relativeSeat(seat);
   const anchor = playerAnchors.value[actualSeat];
   const compact = viewportWidth.value <= 700;
+  const short = innerHeight <= 540 && viewportWidth.value > innerHeight;
   if (!anchor || (seat === 0 && cameraMode.value === 'first')) return {};
   if (cameraMode.value === 'third')
     return {
-      left: `${Math.max(85, Math.min(viewportWidth.value - 85, anchor.x))}px`,
-      top: `${anchor.y + 34}px`,
+      left: `${Math.max(compact ? 48 : 85, Math.min(viewportWidth.value - (compact ? 48 : 85), anchor.x))}px`,
+      top: `${anchor.y + (compact ? 48 : 34)}px`,
       right: 'auto',
       bottom: 'auto',
       transform: 'translate(-50%, -50%)',
     };
   const halfWidth = compact ? 49 : 90;
   const offset = compact ? 16 : 75;
-  const projectedY = anchor.y + (seat === 2 ? -190 : compact ? 26 : 12);
+  const projectedY =
+    anchor.y +
+    (short ? (seat === 2 ? -55 : 26) : compact ? (seat === 2 ? -70 : 42) : seat === 2 ? -190 : 12);
   const labelY =
     compact && seat === 2
       ? Math.max(166, projectedY)
@@ -217,7 +220,9 @@ const view = computed<PublicGame | undefined>(() => {
     nextRoundAt: null,
   };
 });
-const cameraMode = computed<'first' | 'third'>(() => view.value?.presentation?.cameraMode ?? 'first');
+const cameraMode = computed<'first' | 'third'>(
+  () => view.value?.presentation?.cameraMode ?? 'first',
+);
 const relativeSeat = (seat: number) =>
   (seat - (cameraMode.value === 'third' ? 0 : (view.value?.viewpointSeat ?? 0)) + 4) % 4;
 const currentEntry = computed(() =>
@@ -291,10 +296,10 @@ async function leave() {
 function handStyle(i: number) {
   if (viewportWidth.value <= 700) {
     const middle = (hand.value.length - 1) / 2;
-    const spread = Math.min(42, middle * 14);
+    const step = Math.min(22, (viewportWidth.value - 70) / Math.max(1, hand.value.length - 1));
     return {
-      left: '50%',
-      transform: `translateX(-50%) rotate(${middle ? ((i - middle) / middle) * spread : 0}deg)`,
+      left: `calc(50% + ${(i - middle) * step}px)`,
+      transform: `translateX(-50%) translateY(${Math.pow((i - middle) / Math.max(1, middle), 2) * 14}px) rotate(${middle ? ((i - middle) / middle) * 10 : 0}deg)`,
       zIndex: i + 1,
     };
   }
