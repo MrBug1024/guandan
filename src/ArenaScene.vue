@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from 'vue';
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { rankName, type Card, type Entry, type Move } from '../shared/types';
 const props = defineProps<{
+  cameraMode: 'first' | 'third';
+  viewpointSeat: number;
   turn: number;
   thinking: number | null;
   finished: number[];
@@ -54,6 +56,37 @@ let handKey = '',
   actionTime = -20,
   played: THREE.Group | undefined;
 const tablePlays: THREE.Group[] = [];
+const firstPerson = new THREE.Group();
+const heldCards = new THREE.Group();
+let heldKey = '';
+function updateHeldCards() {
+  const key = `${props.viewpointSeat}:${props.hand.map((c) => c.id).join(',')}`;
+  if (key === heldKey) return;
+  heldKey = key;
+  disposeGroup(heldCards);
+  const n = props.hand.length;
+  [...props.hand].reverse().forEach((card, i) => {
+    const mesh = makeCard(card);
+    mesh.scale.setScalar(0.65);
+    const offset = i - (n - 1) / 2;
+    const step = Math.min(0.13, 1.45 / Math.max(1, n - 1));
+    mesh.position.set(-offset * step, 1.65, 1.04 - i * 0.001);
+    mesh.rotation.set(-0.18, 0, 0);
+    heldCards.add(mesh);
+  });
+  const grip = Math.min(
+    0.65,
+    Math.max(0.16, ((n - 1) * Math.min(0.13, 1.45 / Math.max(1, n - 1))) / 2),
+  );
+  firstPerson.traverse((o) => {
+    if (o instanceof THREE.Mesh && o.userData.ourHand) {
+      (o.material as THREE.MeshPhysicalMaterial).color.setHex(palette[props.viewpointSeat]);
+      const side = o.userData.side;
+      o.position.x = side * (grip + o.userData.gripOffset);
+    }
+  });
+}
+
 function material(color: number, roughness = 0.65) {
   const m = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.04 });
   resources.add(m);
@@ -162,18 +195,20 @@ function cardTexture(card?: Card) {
     ctx.fillStyle =
       card.suit === 'H' || card.suit === 'D' || card.rank === 16 ? '#ae4355' : '#253345';
     ctx.font = 'bold 92px sans-serif';
-    ctx.fillText(card.rank >= 15 ? 'J' : rankName(card.rank), 45, 120);
+    ctx.fillText(card.rank >= 15 ? 'J' : rankName(card.rank), 32, 120, 98);
     ctx.font = '80px sans-serif';
     ctx.fillText(suit, 45, 210);
     ctx.textAlign = 'center';
-    ctx.font = '210px sans-serif';
-    ctx.fillText(suit, 256, 470);
+    ctx.font = 'bold 150px sans-serif';
+    ctx.fillText(rankName(card.rank), 256, 340, 330);
+    ctx.font = '190px sans-serif';
+    ctx.fillText(suit, 256, 550);
     ctx.save();
     ctx.translate(512, 768);
     ctx.rotate(Math.PI);
     ctx.textAlign = 'left';
     ctx.font = 'bold 92px sans-serif';
-    ctx.fillText(card.rank >= 15 ? 'J' : rankName(card.rank), 45, 120);
+    ctx.fillText(card.rank >= 15 ? 'J' : rankName(card.rank), 32, 120, 98);
     ctx.font = '80px sans-serif';
     ctx.fillText(suit, 45, 210);
     ctx.restore();
@@ -182,10 +217,7 @@ function cardTexture(card?: Card) {
 function makeCard(card?: Card) {
   const group = new THREE.Group(),
     geometry = new THREE.PlaneGeometry(0.4, 0.59);
-  const front = new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({ map: cardTexture(card), roughness: 0.8 }),
-  );
+  const front = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ map: cardTexture(card) }));
   front.castShadow = true;
   front.rotation.y = Math.PI;
   front.position.z = -0.001;
@@ -209,14 +241,14 @@ function disposeGroup(group: THREE.Group) {
   group.clear();
 }
 function updateFans() {
-  const key = `${props.round}:${props.hand.map((c) => c.id).join(',')}:${props.counts.join(',')}`;
+  const key = `${props.viewpointSeat}:${props.round}:${props.hand.map((c) => c.id).join(',')}:${props.counts.join(',')}`;
   if (key === handKey) return;
   handKey = key;
   actors.forEach((a, i) => {
     disposeGroup(a.fan);
-    const n = i === 0 ? props.hand.length : Math.min(9, props.counts[i]);
+    const n = i === props.viewpointSeat ? props.hand.length : Math.min(9, props.counts[i]);
     for (let j = 0; j < n; j++) {
-      const card = makeCard(i === 0 ? props.hand[j] : undefined),
+      const card = makeCard(i === props.viewpointSeat ? props.hand[j] : undefined),
         angle = (j - (n - 1) / 2) * Math.min(0.14, 1.12 / Math.max(1, n - 1));
       card.position.set(Math.sin(angle) * 1.15, Math.cos(angle) * 0.15, 0.004 * j);
       card.rotation.z = -angle;
@@ -234,36 +266,43 @@ function clearTable() {
   played = undefined;
 }
 function playCards(entry: Entry, t: number, settled = false) {
-  if (entry.after?.last === null) {
-    clearTable();
-    return;
-  }
   if (!entry.move || entry.move.kind === 'pass') return;
   const pile = new THREE.Group();
-  pile.scale.setScalar(1.23);
+  pile.scale.setScalar(1.3);
   const scatter = (n: number) => Math.sin(entry.seq * 31.7 + n * 17.13) * 0.5;
   entry.move.cards.forEach((c, j) => {
     const mesh = makeCard(c);
     mesh.position.set(
-      (j - (entry.move!.cards.length - 1) / 2) * 0.29 + scatter(j) * 0.07,
+      (j - (entry.move!.cards.length - 1) / 2) * 0.22 + scatter(j) * 0.025,
       j * 0.003,
       scatter(j + 13) * 0.14,
     );
     mesh.rotation.set(Math.PI / 2, 0, scatter(j + 7) * 0.18);
     pile.add(mesh);
   });
-  const direction = actors[entry.seat].root.position.clone().normalize();
-  const target = new THREE.Vector3(
-    direction.x * 0.52 + scatter(20) * 0.48,
-    1.37 + tablePlays.reduce((height, p) => height + p.children.length * 0.0037, 0),
-    direction.z * 0.38 + scatter(21) * 0.34,
-  );
+  // All cards land in table coordinates, independently of player/camera transforms.
+  // Retain previous plays around the centre; reserve the middle for the latest play.
+  tablePlays.forEach((old, index) => {
+    const angle = index * 2.399963;
+    const radius = 1.25 + (index % 3) * 0.16;
+    const archived = new THREE.Vector3(
+      Math.cos(angle) * radius,
+      1.345 + index * 0.00025,
+      Math.sin(angle) * radius,
+    );
+    old.position.copy(archived);
+    old.userData.target.copy(archived);
+    old.userData.start = t - 2;
+    old.scale.setScalar(0.9);
+  });
+  const target = new THREE.Vector3(0, 1.375, 0);
   const from = actors[entry.seat].root.localToWorld(actors[entry.seat].fan.position.clone());
-  from.y = 1.8;
+  from.y = 2.15;
   pile.position.copy(settled ? target : from);
-  const yaw = Math.PI + scatter(22) * 0.3;
+  const yaw = Math.PI + [0, -Math.PI / 2, Math.PI, Math.PI / 2][props.viewpointSeat];
   pile.rotation.y = yaw;
   pile.userData = {
+    seat: entry.seat,
     from,
     target,
     yaw,
@@ -277,9 +316,7 @@ function playCards(entry: Entry, t: number, settled = false) {
 function restoreTable(t: number) {
   clearTable();
   const history = props.history.filter((e) => e.move && e.after?.round === props.round);
-  let start = 0;
-  for (let i = 0; i < history.length; i++) if (history[i].after?.last === null) start = i + 1;
-  for (const entry of history.slice(start)) playCards(entry, t, true);
+  for (const entry of history) playCards(entry, t, true);
   if (!played && props.last && props.entry)
     playCards({ ...props.entry, move: props.last, seat: props.lastSeat }, t, true);
 }
@@ -314,7 +351,7 @@ onMounted(() => {
     key.shadow.camera.right = 9;
     key.shadow.camera.top = 9;
     key.shadow.camera.bottom = -9;
-    key.shadow.normalBias = 0.012;
+    key.shadow.normalBias = 0.003;
     key.shadow.bias = -0.00015;
     scene.add(key);
     const fill = new THREE.PointLight(0x7db8d7, 18);
@@ -339,7 +376,7 @@ onMounted(() => {
       scene.add(seam);
     }
     const table = new THREE.Group();
-    table.scale.set(1.08, 1, 1.08);
+    table.scale.set(0.82, 1, 0.82);
     scene.add(table);
     const pedestal = new THREE.Mesh(
       new THREE.CylinderGeometry(0.9, 1.35, 1.1, 48),
@@ -351,7 +388,7 @@ onMounted(() => {
       new THREE.CylinderGeometry(3.65, 3.59, 0.24, 96),
       material(0x76554b, 0.35),
     );
-    wood.scale.z = 0.78;
+    wood.scale.z = 1;
     wood.position.y = 1.17;
     wood.castShadow = true;
     table.add(wood);
@@ -360,7 +397,7 @@ onMounted(() => {
       material(0x38434c, 0.42),
     );
     padding.rotation.x = -Math.PI / 2;
-    padding.scale.y = 0.78;
+    padding.scale.y = 1;
     padding.position.y = 1.3;
     table.add(padding);
     const feltTex = texture('felt', (ctx, c) => {
@@ -380,7 +417,7 @@ onMounted(() => {
     feltMaterial.map = feltTex;
     const felt = new THREE.Mesh(new THREE.CylinderGeometry(3.26, 3.26, 0.055, 96), feltMaterial);
     felt.position.y = 1.31;
-    felt.scale.z = 0.78;
+    felt.scale.z = 1;
     felt.receiveShadow = true;
     table.add(felt);
     const trim = new THREE.Mesh(
@@ -389,7 +426,7 @@ onMounted(() => {
     );
     trim.rotation.x = -Math.PI / 2;
     trim.position.y = 1.32;
-    trim.scale.y = 0.78;
+    trim.scale.y = 1;
     table.add(trim);
     const logoTex = texture('emblem', (ctx, c) => {
       ctx.clearRect(0, 0, c.width, c.height);
@@ -409,10 +446,10 @@ onMounted(() => {
     table.add(logo);
     // Cardinal seat orientations: near player faces away from us; side players face inward.
     const positions: [[number, number, number], number][] = [
-      [[0, 0, 3.88], Math.PI],
-      [[-4.4, 0, 0], Math.PI / 2],
-      [[0, 0, -3.88], 0],
-      [[4.4, 0, 0], -Math.PI / 2],
+      [[0, 0, 3.6], Math.PI],
+      [[-3.6, 0, 0], Math.PI / 2],
+      [[0, 0, -3.6], 0],
+      [[3.6, 0, 0], -Math.PI / 2],
     ];
     for (let i = 0; i < 4; i++) {
       const [position, yaw] = positions[i],
@@ -420,31 +457,47 @@ onMounted(() => {
       root.position.set(...position);
       root.rotation.y = yaw;
       scene.add(root);
+      const contactMap = texture('seat-contact', (ctx, c) => {
+        const gradient = ctx.createRadialGradient(256, 384, 15, 256, 384, 250);
+        gradient.addColorStop(0, '#00000080');
+        gradient.addColorStop(1, '#00000000');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, c.width, c.height);
+      });
+      const contact = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.4, 2.1),
+        new THREE.MeshBasicMaterial({ map: contactMap, transparent: true, depthWrite: false }),
+      );
+      contact.rotation.x = -Math.PI / 2;
+      contact.position.set(position[0], -0.345, position[2]);
+      scene.add(contact);
       const chair = new THREE.Group();
       root.add(chair);
-      box(chair, 0x343c4c, [1.5, 0.2, 1.25], [0, 0.18, -0.12]);
-      const back = box(chair, 0x414859, [1.48, 1.16, 0.18], [0, 0.76, -0.86]);
+      chair.scale.x = 0.88;
+      box(chair, 0x343c4c, [1.5, 0.2, 1.25], [0, 0.72, -0.12]);
+      const back = box(chair, 0x414859, [1.48, 1.16, 0.18], [0, 1.3, -0.86]);
       back.rotation.x = -0.09;
       for (const side of [-1, 1]) {
-        box(chair, 0x8b7260, [0.1, 0.6, 0.12], [side * 0.66, -0.12, -0.4]);
-        box(chair, 0x8b7260, [0.1, 0.6, 0.12], [side * 0.66, -0.12, 0.4]);
-        box(chair, 0x353d4c, [0.15, 0.15, 0.95], [side * 0.75, 0.69, -0.08]);
+        box(chair, 0x8b7260, [0.1, 1.14, 0.12], [side * 0.66, 0.15, -0.4]);
+        box(chair, 0x8b7260, [0.1, 1.14, 0.12], [side * 0.66, 0.15, 0.4]);
+        box(chair, 0x353d4c, [0.15, 0.15, 0.95], [side * 0.75, 1.23, -0.08]);
       }
       const body = new THREE.Group();
-      body.position.y = 0.41;
+      body.position.y = 0.95;
       root.add(body);
-      sphere(body, palette[i], [0.63, 0.61, 0.49], [0, 0.49, 0]);
-      sphere(body, 0xffeed8, [0.45, 0.46, 0.23], [0, 0.49, 0.35]);
+      sphere(body, palette[i], [0.57, 0.61, 0.46], [0, 0.49, 0]);
+      sphere(body, 0xffeed8, [0.4, 0.46, 0.21], [0, 0.49, 0.34]);
       const hips = new THREE.Group();
-      hips.position.y = 0.41;
+      hips.position.y = 0.95;
       root.add(hips);
       for (const side of [-1, 1]) {
         sphere(hips, palette[i], [0.28, 0.29, 0.39], [side * 0.38, 0.1, 0.39]);
-        sphere(hips, palette[i], [0.22, 0.31, 0.22], [side * 0.38, -0.29, 0.46]);
-        sphere(hips, palette[i], [0.24, 0.15, 0.29], [side * 0.39, -0.62, 0.59]);
+        sphere(hips, palette[i], [0.22, 0.52, 0.22], [side * 0.38, -0.5, 0.46]);
+        sphere(hips, palette[i], [0.24, 0.15, 0.29], [side * 0.39, -1.16, 0.59]);
       }
       const head = new THREE.Group();
-      head.position.set(0, 1.57, 0);
+      head.position.set(0, 1.46, 0);
+      head.scale.setScalar(0.82);
       body.add(head);
       sphere(head, palette[i], [0.77, 0.64, 0.61], [0, 0, 0]);
       sphere(head, 0xffeed8, [0.4, 0.24, 0.18], [0, -0.25, 0.49]);
@@ -495,18 +548,18 @@ onMounted(() => {
       sphere(head, 0xe9c67f, [0.07, 0.07, 0.07], [0, antennaHeight, 0]);
       const left = new THREE.Group(),
         right = new THREE.Group();
-      left.position.set(-0.54, 1.1, 0.22);
-      right.position.set(0.54, 1.1, 0.22);
+      left.position.set(-0.47, 0.59, 0.5);
+      right.position.set(0.47, 0.59, 0.5);
       body.add(left, right);
       for (const [arm, side] of [
         [left, -1],
         [right, 1],
       ] as [THREE.Group, number][]) {
-        sphere(arm, palette[i], [0.2, 0.25, 0.29], [side * 0.09, -0.1, 0.26]);
-        sphere(arm, palette[i], [0.19, 0.18, 0.2], [side * 0.02, -0.04, 0.49]);
+        sphere(arm, palette[i], [0.16, 0.15, 0.34], [side * 0.07, -0.06, 0.26]);
+        sphere(arm, palette[i], [0.16, 0.16, 0.18], [side * 0.02, -0.04, 0.49]);
       }
       const fan = new THREE.Group();
-      fan.position.set(0, 1.74, 1.04);
+      fan.position.set(0, 1.66, 1.04);
       root.add(fan);
       actors.push({
         root,
@@ -529,15 +582,72 @@ onMounted(() => {
       scene.add(cup);
     }
     scene.add(temporary);
+    scene.add(camera);
+    scene.add(firstPerson);
+    firstPerson.add(heldCards);
+
+    // Visible forearms and palms belong to the viewer, below the eye line.
+    for (const side of [-1, 1]) {
+      const forearm = sphere(
+        firstPerson,
+        palette[props.viewpointSeat],
+        [0.14, 0.12, 0.37],
+        [side * 0.66, 1.46, 0.63],
+      );
+      forearm.rotation.y = side * -0.16;
+      forearm.userData = { ourHand: true, side, gripOffset: 0.11 };
+      const palm = sphere(
+        firstPerson,
+        palette[props.viewpointSeat],
+        [0.13, 0.11, 0.1],
+        [side * 0.55, 1.49, 1.02],
+      );
+      palm.userData = { ourHand: true, side, gripOffset: 0 };
+      const thumb = sphere(
+        firstPerson,
+        palette[props.viewpointSeat],
+        [0.055, 0.095, 0.055],
+        [side * 0.47, 1.57, 0.93],
+      );
+      thumb.rotation.z = side * -0.45;
+      thumb.userData = { ourHand: true, side, gripOffset: -0.08 };
+    }
+    const handLight = new THREE.PointLight(0xffeed8, 0.6, 3);
+    handLight.position.set(-0.4, 0.3, -0.6);
+    camera.add(handLight);
+    updateHeldCards();
     updateFans();
     const resize = () => {
       const { width, height } = host.value!.getBoundingClientRect();
       renderer!.setSize(width, height);
       camera.aspect = width / height;
       const compact = width <= 700;
-      camera.position.set(0.15, compact ? 9.1 : 7.7, compact ? 9.0 : 11.7);
-      camera.lookAt(0, compact ? 1.2 : 1.1, compact ? 0.5 : 0.2);
-      camera.zoom = Math.min(1, camera.aspect / (compact ? 1.32 : 1.45));
+      // Equal-radius camera poses keep the same table proportions at all four seats.
+      // Set poses in world space: localToWorld can use stale matrices after a seat change.
+      const yaw = [0, -Math.PI / 2, Math.PI, Math.PI / 2][props.viewpointSeat];
+      const overview = props.cameraMode === 'third';
+      const distance = 3.55;
+      camera.position.set(Math.sin(yaw) * distance, 2.56, Math.cos(yaw) * distance);
+      camera.up.set(0, 1, 0);
+      camera.lookAt(0, 1.12, 0);
+      camera.fov = 75;
+      if (overview) {
+        camera.position.set(0, compact ? 8.7 : 7.6, compact ? 9.7 : 9.4);
+        camera.lookAt(0, 1.1, 0);
+        camera.fov = 44;
+        camera.zoom = Math.min(1, camera.aspect / 1.3);
+      }
+      firstPerson.visible = !overview;
+      camera.zoom = 1;
+      firstPerson.position.copy(actors[props.viewpointSeat].root.position);
+      firstPerson.rotation.y = actors[props.viewpointSeat].root.rotation.y;
+      tablePlays.forEach((pile) => {
+        pile.userData.yaw = Math.PI + yaw;
+        pile.rotation.y = pile.userData.yaw;
+      });
+      actors.forEach((actor, i) => {
+        actor.root.visible = overview || i !== props.viewpointSeat;
+      });
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
       scene.updateMatrixWorld(true);
@@ -546,7 +656,7 @@ onMounted(() => {
       emit(
         'anchors',
         actors.map(({ root }) => {
-          const point = root.localToWorld(new THREE.Vector3(0, 1.05, 0)).project(camera);
+          const point = root.localToWorld(new THREE.Vector3(0, 1.59, 0)).project(camera);
           return {
             x: bounds.left - parent.left + ((point.x + 1) * width) / 2,
             y: bounds.top - parent.top + ((1 - point.y) * height) / 2,
@@ -554,6 +664,7 @@ onMounted(() => {
         }),
       );
     };
+    watch(() => [props.viewpointSeat, props.cameraMode], resize);
     observer = new ResizeObserver(resize);
     observer.observe(host.value!);
     resize();
@@ -565,6 +676,7 @@ onMounted(() => {
       const dt = Math.min(0.05, clock.getDelta()),
         t = clock.elapsedTime;
       updateFans();
+      updateHeldCards();
       const activeSeat = props.thinking ?? props.turn;
       if (activeSeat !== attentionSeat) {
         attentionSeat = activeSeat;
@@ -610,9 +722,9 @@ onMounted(() => {
           if (props.last && ['bomb', 'flush', 'kings'].includes(props.last.kind))
             target.set(0, 1.4, 0);
         } else if (actors[watchingSeat] && i !== watchingSeat) {
-          target.copy(actors[watchingSeat].root.position).add(new THREE.Vector3(0, 1.98, 0));
+          target.copy(actors[watchingSeat].root.position).add(new THREE.Vector3(0, 2.44, 0));
         }
-        const origin = a.root.position.clone().add(new THREE.Vector3(0, 1.98, 0));
+        const origin = a.root.position.clone().add(new THREE.Vector3(0, 2.44, 0));
         const delta = target.sub(origin);
         const relative = Math.atan2(delta.x, delta.z) - a.root.rotation.y;
         let gaze = Math.atan2(Math.sin(relative), Math.cos(relative));
@@ -657,16 +769,16 @@ onMounted(() => {
         const ponder = pressure ? Math.min(1, (t - attentionTime) / 1.6) * 0.5 : 0;
         a.left.rotation.x = THREE.MathUtils.lerp(
           a.left.rotation.x,
-          -0.05 - ponder,
+          -0.02 - ponder * 0.1,
           1 - Math.exp(-dt * 3),
         );
         a.left.rotation.z = ponder * 0.18;
-        a.left.position.y = 1.1 + ponder * 0.08;
-        a.right.rotation.x = -0.08 - reach * 0.75;
-        a.right.position.z = 0.22 + reach * 0.24;
+        a.left.position.y = 0.59 + ponder * 0.02;
+        a.right.rotation.x = -reach * 0.25;
+        a.right.position.z = 0.5 + reach * 0.24;
         a.fan.rotation.z = thinking ? Math.sin(t * 1.8) * 0.025 : 0;
-        a.fan.position.y = 1.74 + Math.sin(t * 1.5 + i) * 0.007;
-        a.fan.visible = props.counts[i] > 0;
+        a.fan.position.y = 1.66;
+        a.fan.visible = props.counts[i] > 0 && !(props.cameraMode === 'third' && i === 0);
         const blink = (t + i * 0.63) % 4.7 < 0.13;
         a.eyes.forEach((e) => (e.scale.y = blink ? 0.02 : 0.11));
         a.eyeGlints.forEach((e) => {

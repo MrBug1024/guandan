@@ -24,3 +24,17 @@ test('near-side hand updates after an actual legal play', () => {
   assert.ok(!state.visibleHand.some((c) => c.id === move.cards[0].id));
   assert.equal(state.counts[0], 26);
 });
+
+test('each selected viewpoint exposes only that seat private hand', () => {
+  const game = newGame();
+  for (let seat = 0; seat < 4; seat++) {
+    const state = publicState(game, defaults, { ...settings, viewpointSeat: seat });
+    assert.equal(state.viewpointSeat, seat);
+    assert.deepEqual(state.visibleHand, game.hands[seat]);
+    assert.equal('hands' in state, false);
+    const payload = JSON.stringify(state);
+    game.hands.forEach((hand, i) => {
+      if (i !== seat) hand.forEach((card) => assert.equal(payload.includes(card.id), false));
+    });
+  }
+});

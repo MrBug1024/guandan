@@ -18,6 +18,7 @@ const pending = ref(false),
   viewerError = ref('正在连接对局…'),
   now = ref(Date.now()),
   viewportWidth = ref(innerWidth);
+const replaySeat = ref(0);
 const replayIndex = ref(replaySession.value?.game.history.length ?? 0);
 const speechReady = ref(false);
 const audioError = ref('');
@@ -133,12 +134,22 @@ function speakEntry(entry: NonNullable<PublicGame['history'][number]>) {
 }
 const playerAnchors = ref<{ x: number; y: number }[]>([]);
 function playerLabelStyle(seat: number) {
-  const anchor = playerAnchors.value[seat];
+  const actualSeat = seat;
+  seat = relativeSeat(seat);
+  const anchor = playerAnchors.value[actualSeat];
   const compact = viewportWidth.value <= 700;
-  if (!anchor || (!compact && seat !== 1 && seat !== 3)) return {};
+  if (!anchor || (seat === 0 && cameraMode.value === 'first')) return {};
+  if (cameraMode.value === 'third')
+    return {
+      left: `${Math.max(85, Math.min(viewportWidth.value - 85, anchor.x))}px`,
+      top: `${anchor.y + 34}px`,
+      right: 'auto',
+      bottom: 'auto',
+      transform: 'translate(-50%, -50%)',
+    };
   const halfWidth = compact ? 49 : 90;
   const offset = compact ? 16 : 75;
-  const projectedY = anchor.y + (compact ? (seat === 2 ? -95 : seat === 0 ? 34 : 26) : 12);
+  const projectedY = anchor.y + (seat === 2 ? -190 : compact ? 26 : 12);
   const labelY =
     compact && seat === 2
       ? Math.max(166, projectedY)
@@ -155,9 +166,11 @@ function playerLabelStyle(seat: number) {
 }
 const broadcastMode = computed(() => route.name === 'watch' || route.query.broadcast === '1'),
   portrait = computed(() => route.query.layout === 'portrait' || viewportWidth.value <= 700);
-const spectatorQuery = computed(() =>
-  route.name === 'watch' ? `?share=${encodeURIComponent(String(route.params.share))}` : '',
-);
+const spectatorQuery = computed(() => {
+  const params = new URLSearchParams();
+  if (route.name === 'watch') params.set('share', String(route.params.share));
+  return params.size ? '?' + params.toString() : '';
+});
 async function shareMatch() {
   const url = `${location.origin}${sharePath.value}`;
   try {
@@ -186,15 +199,17 @@ const view = computed<PublicGame | undefined>(() => {
   const history = r.game.history.slice(0, replayIndex.value),
     frame = history.at(-1)?.after ?? gameFrame(toRaw(r.initial));
   const used = new Set(
-    history.filter((e) => e.seat === 0).flatMap((e) => e.move?.cards.map((c) => c.id) ?? []),
+    history
+      .filter((e) => e.seat === replaySeat.value)
+      .flatMap((e) => e.move?.cards.map((c) => c.id) ?? []),
   );
   const { hands, ...game } = r.game;
   return {
     ...game,
     ...frame,
     history,
-    visibleHand: r.initial.hands[0].filter((c) => !used.has(c.id)),
-    viewpointSeat: 0,
+    visibleHand: r.initial.hands[replaySeat.value].filter((c) => !used.has(c.id)),
+    viewpointSeat: replaySeat.value,
     agents: r.agents,
     thinking: null,
     delayMs: 1800,
@@ -202,6 +217,9 @@ const view = computed<PublicGame | undefined>(() => {
     nextRoundAt: null,
   };
 });
+const cameraMode = computed<'first' | 'third'>(() => view.value?.presentation?.cameraMode ?? 'first');
+const relativeSeat = (seat: number) =>
+  (seat - (cameraMode.value === 'third' ? 0 : (view.value?.viewpointSeat ?? 0)) + 4) % 4;
 const currentEntry = computed(() =>
   view.value?.history.filter((e) => e.move && e.after?.round === view.value?.round).at(-1),
 );
@@ -237,7 +255,15 @@ function notify(message: string) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ''), 4500);
 }
-async function action(name: string, presentation?: { speech?: boolean; showFeed?: boolean }) {
+async function action(
+  name: string,
+  presentation?: {
+    speech?: boolean;
+    showFeed?: boolean;
+    viewpointSeat?: number;
+    cameraMode?: 'first' | 'third';
+  },
+) {
   if (replaySession.value) return;
   pending.value = true;
   try {
@@ -284,23 +310,8 @@ function handStyle(i: number) {
 function resize() {
   viewportWidth.value = innerWidth;
 }
-onMounted(async () => {
-  window.addEventListener('resize', resize);
-  clock = setInterval(() => (now.value = Date.now()), 200);
-  try {
-    const response = await fetch('/api/state' + spectatorQuery.value);
-    if (!response.ok) {
-      viewerError.value = broadcastMode.value
-        ? '观战链接无效，请向管理员获取新的链接。'
-        : '登录已过期，请重新登录。';
-      if (!broadcastMode.value) await router.replace('/login');
-      return;
-    }
-    state.value = await response.json();
-  } catch {
-    viewerError.value = '暂时无法连接对局，请刷新页面重试。';
-    return;
-  }
+function openStream() {
+  stream?.close();
   stream = new EventSource('/api/events' + spectatorQuery.value);
   stream.onmessage = (e) => {
     state.value = JSON.parse(e.data);
@@ -327,6 +338,25 @@ onMounted(async () => {
     if (entry) spokenSeq = entry.seq;
   };
   stream.onerror = () => (connected.value = false);
+}
+onMounted(async () => {
+  window.addEventListener('resize', resize);
+  clock = setInterval(() => (now.value = Date.now()), 200);
+  try {
+    const response = await fetch('/api/state' + spectatorQuery.value);
+    if (!response.ok) {
+      viewerError.value = broadcastMode.value
+        ? '观战链接无效，请向管理员获取新的链接。'
+        : '登录已过期，请重新登录。';
+      if (!broadcastMode.value) await router.replace('/login');
+      return;
+    }
+    state.value = await response.json();
+  } catch {
+    viewerError.value = '暂时无法连接对局，请刷新页面重试。';
+    return;
+  }
+  openStream();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('resize', resize);
@@ -343,6 +373,7 @@ onBeforeUnmount(() => {
       'clean-broadcast': broadcastMode,
       'match-portrait': portrait,
       'feed-open': showFeed,
+      'view-third': cameraMode === 'third',
       'audio-prompt': broadcastMode && speech && !speechReady,
     }"
   >
@@ -352,6 +383,8 @@ onBeforeUnmount(() => {
     </div>
     <template v-if="view">
       <ArenaScene
+        :camera-mode="cameraMode"
+        :viewpoint-seat="view.viewpointSeat"
         :turn="view.turn"
         :thinking="view.thinking"
         :finished="view.finished"
@@ -469,7 +502,7 @@ onBeforeUnmount(() => {
         :key="i"
         :class="[
           'player-label',
-          'player-label-' + i,
+          'player-label-' + relativeSeat(i),
           { active: view.turn === i, finished: view.finished.includes(i) },
         ]"
         :style="{ '--player-color': colors[i], ...playerLabelStyle(i) }"
@@ -479,7 +512,15 @@ onBeforeUnmount(() => {
           <strong
             >{{ agent.name }}
             <small>{{
-              i === 0 ? '近侧视角' : i === 2 ? '对家搭档' : i === 1 ? '左侧' : '右侧'
+              relativeSeat(i) === 0
+                ? cameraMode === 'third'
+                  ? '近侧'
+                  : '我们'
+                : relativeSeat(i) === 2
+                  ? '对家搭档'
+                  : relativeSeat(i) === 1
+                    ? '左侧'
+                    : '右侧'
             }}</small></strong
           >
           <p>
@@ -494,14 +535,14 @@ onBeforeUnmount(() => {
             }}</span
             ><em v-if="view.thinking === i">思考 <i class="thinking">•••</i></em
             ><em v-else-if="view.turn === i && !roundOver">轮到出牌</em
-            ><span v-else>{{ i === 0 ? '手牌可见' : '手牌隐藏' }}</span>
+            ><span v-else>{{ i === view.viewpointSeat ? '手牌可见' : '手牌隐藏' }}</span>
           </p>
         </div>
       </div>
       <div
         v-if="currentEntry && !roundOver"
         class="action-bubble"
-        :class="'bubble-' + currentEntry.seat"
+        :class="'bubble-' + relativeSeat(currentEntry.seat)"
         :key="`${view.id}-${currentEntry.seq}`"
       >
         <span>{{
@@ -573,7 +614,10 @@ onBeforeUnmount(() => {
       </section>
       <div class="hand-zone">
         <div class="hand-heading">
-          <strong>✿ {{ view.agents[0].name }}的手牌</strong>
+          <strong
+            >✿ {{ view.agents[view.viewpointSeat].name }} ·
+            {{ cameraMode === 'third' ? '观战手牌' : '我们的手牌' }}</strong
+          >
           <span class="hand-count">剩余 {{ hand.length }} 张</span>
           <span class="hand-wild">♥{{ rankName(view.level) }} 逢人配</span>
         </div>

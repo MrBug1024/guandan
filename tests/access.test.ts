@@ -123,6 +123,35 @@ test(
       assert.match(login.headers.get('set-cookie')!, /HttpOnly/i);
       const share = (await login.json()).sharePath.split('/').at(-1);
       assert.equal((await request(`state?share=${share}`)).status, 200);
+      const selected = await (await request(`state?share=${share}&seat=2`)).json();
+      assert.equal(selected.viewpointSeat, 2);
+      assert.equal(selected.visibleHand.length, 27);
+      assert.equal(selected.hands, undefined);
+      assert.equal((await request(`state?share=${share}&seat=4`)).status, 400);
+      assert.equal((await request(`events?share=${share}&seat=-1`)).status, 400);
+      const stream = await request(`events?share=${share}&seat=3`);
+      const reader = stream.body!.getReader();
+      const event = new TextDecoder().decode((await reader.read()).value);
+      assert.equal(JSON.parse(event.split('data: ')[1].trim()).viewpointSeat, 3);
+      await reader.cancel();
+      const third = await (
+        await request(
+          'control',
+          { action: 'presentation', presentation: { cameraMode: 'third' } },
+          true,
+        )
+      ).json();
+      assert.equal(third.presentation.cameraMode, 'third');
+      assert.equal(
+        (
+          await request(
+            'control',
+            { action: 'presentation', presentation: { cameraMode: 'invalid' } },
+            true,
+          )
+        ).status,
+        400,
+      );
       assert.equal((await request(`control?share=${share}`, { action: 'restart' })).status, 401);
       assert.equal((await request(`inspect?share=${share}`)).status, 401);
       const crossOrigin = await fetch(`http://127.0.0.1:${port}/api/control`, {

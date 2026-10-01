@@ -1399,3 +1399,17 @@
   color: #f4b5bd;
   margin-top: 3px;
 }
+
+/* Cards are held by the visible 3D hands, rather than a second floating HUD fan. */
+.hand-zone .visible-hand {
+  visibility: hidden;
+}
+.hand-zone {
+  bottom: 65px;
+}
+.player-label-0 {
+  display: none;
+}
+.match-page:has(.scene-fallback) .hand-zone .visible-hand {
+  visibility: visible;
+}

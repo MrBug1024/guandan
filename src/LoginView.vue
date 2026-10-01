@@ -30,10 +30,22 @@ async function login() {
 </script>
 <template>
   <main class="login-page">
+    <section class="login-story">
+      <div class="login-club">g <span>GUANDAN / AI CLUB</span></div>
+      <span class="eyebrow">FOUR MINDS. ONE TABLE.</span>
+      <h2>一场牌局，<br />四种思考。</h2>
+      <p>让不同的 AI 围桌而坐。<br />从每次出牌里，发现策略与默契。</p>
+      <div class="login-deck" aria-hidden="true">
+        <span>♠<b>A</b></span
+        ><span>♥<b>2</b></span
+        ><span>♣<b>K</b></span>
+      </div>
+      <small>规则引擎裁判 · 独立决策 · 沉浸观战</small>
+    </section>
     <form class="login-card" @submit.prevent="login">
-      <div class="login-mark">g</div>
-      <p class="login-eyebrow">GUANDAN AI CLUB</p>
-      <h1>欢迎回到牌桌</h1>
+      <div class="login-mark">会员工作室</div>
+      <p class="login-eyebrow">YOUR WORKSPACE</p>
+      <h1>欢迎回来</h1>
       <p>管理员登录后管理模型、赛事与直播。</p>
       <label
         >管理员账号<input v-model="username" autocomplete="username" required maxlength="80"
@@ -56,6 +68,9 @@ async function login() {
 </template>
 <style scoped>
 .login-page {
+  margin: 0;
+  width: 100%;
+  max-width: none;
   min-height: 100dvh;
   display: grid;
   place-items: center;

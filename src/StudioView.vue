@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onBeforeUnmount, toRaw, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { replaySession } from './replay';
 import { admin, sharePath } from './auth';
+import ViewPicker from './ViewPicker.vue';
+import UiIcon from './UiIcon.vue';
 const router = useRouter(),
   route = useRoute();
 const panel = computed(() => String(route.name ?? 'lobby'));
@@ -18,6 +20,20 @@ const state = ref<PublicGame>(),
   inspection = ref<PublicGame>(),
   replay = replaySession,
   speech = ref(false);
+async function setViewpoint(value: string) {
+  try {
+    await api('control', 'POST', {
+      action: 'presentation',
+      presentation:
+        value === 'third'
+          ? { cameraMode: 'third' }
+          : { viewpointSeat: Number(value), cameraMode: 'first' },
+    });
+    notify(value === 'third' ? '已切换全桌第三视角' : '第一视角已切换');
+  } catch (e) {
+    notify((e as Error).message);
+  }
+}
 async function setSpeech(event: Event) {
   await api('control', 'POST', {
     action: 'presentation',
@@ -29,6 +45,11 @@ async function logout() {
   admin.value = false;
   await router.replace('/login');
 }
+const cameraChoice = computed(() =>
+  state.value?.presentation?.cameraMode === 'third'
+    ? 'third'
+    : String(state.value?.viewpointSeat ?? 0),
+);
 const icons = ['✿', '◈', '●', '✦'],
   colors = ['#f5adbd', '#a9bbff', '#a8d6bf', '#ffd19a'];
 let stream: EventSource, clearToast: ReturnType<typeof setTimeout>;
@@ -221,15 +242,15 @@ onBeforeUnmount(() => {
         >g<span>掼蛋<span class="brand-ai">AI</span></span></a
       >
       <div class="workspace-label">竞技工作室</div>
-      <button @click="logout">↗ <span>退出登录</span></button>
+      <button @click="logout"><UiIcon name="exit" /> <span>退出登录</span></button>
       <button :class="{ selected: panel === 'lobby' }" @click="router.push('/studio')">
-        ◉ <span>赛事大厅</span><small>01</small></button
+        <UiIcon name="home" /> <span>赛事大厅</span><small>01</small></button
       ><button :class="{ selected: panel === 'config' }" @click="openConfig">
-        ◇ <span>模型配置</span><small>02</small></button
+        <UiIcon name="models" /> <span>模型配置</span><small>02</small></button
       ><button :class="{ selected: panel === 'live' }" @click="router.push('/studio/broadcast')">
-        ▣ <span>直播工作台</span><small>03</small></button
+        <UiIcon name="live" /> <span>直播工作台</span><small>03</small></button
       ><button :class="{ selected: panel === 'inspect' }" @click="inspect">
-        ▤ <span>手牌与回放</span><small>04</small>
+        <UiIcon name="replay" /> <span>手牌与回放</span><small>04</small>
       </button>
       <div class="sidebar-bottom">
         <div class="local-mark">✦ LOCAL FIRST</div>
@@ -259,15 +280,30 @@ onBeforeUnmount(() => {
           <span class="pill">{{
             replay ? '回放模式' : connected ? '● 实时对局' : '○ 服务离线'
           }}</span
-          ><button class="avatar" @click="openConfig" aria-label="模型设置">⚙</button>
+          ><button class="avatar" @click="openConfig" aria-label="模型设置">
+            <UiIcon name="settings" />
+          </button>
         </div>
       </header>
       <section v-if="panel === 'lobby' && state" class="studio-lobby">
         <div class="lobby-hero">
-          <span class="eyebrow">YOUR NEXT GAME STARTS HERE</span>
-          <h2>准备好，围桌而坐。</h2>
+          <div class="hero-art" aria-hidden="true">
+            <div class="hero-table">
+              <span>♠</span><small>FOUR MINDS<br />ONE TABLE</small>
+            </div>
+            <span
+              v-for="(agent, i) in state.agents"
+              :key="i"
+              :class="'hero-seat hero-seat-' + i"
+              :style="{ '--seat-color': colors[i] }"
+              >{{ agent.name.slice(0, 1) }}</span
+            >
+          </div>
+          <span class="eyebrow">GUANDAN / THE CLUB</span>
+          <h2>四种智慧。<br />一桌默契。</h2>
           <p>
-            配置四位 AI 选手，然后进入独立的全屏牌局。<br />从桃桃的肩后观战，感受每一次默契的出牌。
+            配置四位 AI 选手，然后进入独立的全屏牌局。<br />选择一位 AI
+            作为我们，坐在牌桌前感受每一次出牌。
           </p>
           <div>
             <button class="primary" :disabled="pending || !connected" @click="startArena">
@@ -275,14 +311,38 @@ onBeforeUnmount(() => {
             ><button class="ghost" @click="openConfig">配置选手与节奏</button>
           </div>
         </div>
+        <div class="lobby-toolbar">
+          <div>
+            <span class="eyebrow">TABLE SETTINGS</span>
+            <h3>选一个座位，进入这场较量。</h3>
+            <p>四位选手的第一视角，或俯看整张牌桌。</p>
+          </div>
+          <ViewPicker :agents="state.agents" :value="cameraChoice" @change="setViewpoint" />
+        </div>
         <div class="lobby-seats">
           <article v-for="(a, i) in state.agents" :key="i" :style="{ '--seat-color': colors[i] }">
             <span>{{ icons[i] }}</span>
             <h3>{{ a.name }}</h3>
             <p>
-              {{ ['近侧 · 观战手牌可见', '左侧 · 手牌隐藏', '对面 · 搭档', '右侧 · 手牌隐藏'][i] }}
+              {{ i % 2 === 0 ? '队伍一' : '队伍二' }} · 搭档 {{ state.agents[(i + 2) % 4].name }}
             </p>
             <small>{{ a.provider === 'builtin' ? '内置策略' : a.model }}</small>
+          </article>
+        </div>
+        <div class="lobby-metrics">
+          <article>
+            <small>当前赛局</small
+            ><strong
+              >第 {{ String(state.round).padStart(2, '0') }} 局
+              <span>打 {{ rankName(state.level) }}</span></strong
+            >
+          </article>
+          <article>
+            <small>行动节奏</small
+            ><strong>{{ (state.delayMs / 1000).toFixed(1) }} <span>秒 / 次</span></strong>
+          </article>
+          <article>
+            <small>比赛模式</small><strong>{{ state.autoNext ? '连续对局' : '单局演示' }}</strong>
           </article>
         </div>
         <div class="lobby-info">
@@ -337,7 +397,7 @@ onBeforeUnmount(() => {
                 <label class="check"
                   ><input type="checkbox" v-model="a.jev.deleteKey" /> 保存时删除 JEV Key</label
                 >
-                ></template
+                </template
               > </template
             ><label class="check" v-if="a.provider === 'openai'"
               ><input type="checkbox" v-model="a.deleteKey" /> 保存时删除模型 Key</label
@@ -349,7 +409,10 @@ onBeforeUnmount(() => {
           </article>
         </div>
         <div class="settings-bottom">
-          <p class="subtle">解说统一通过音频播放，观众点击开启声音即可。使用自然普通话音色，无需另配 Key。</p>
+          <ViewPicker :agents="state?.agents ?? []" :value="cameraChoice" @change="setViewpoint" />
+          <p class="subtle">
+            解说统一通过音频播放，观众点击开启声音即可。使用自然普通话音色，无需另配 Key。
+          </p>
           <label
             >行动间隔<select v-model.number="speed">
               <option :value="600">0.6 秒 · 快速测试</option>
@@ -404,7 +467,12 @@ onBeforeUnmount(() => {
             </div>
           </article>
           <article>
-            <h3>03 / 解说与节奏</h3>
+            <h3>03 / 我们的视角与解说</h3>
+            <ViewPicker
+              :agents="state?.agents ?? []"
+              :value="cameraChoice"
+              @change="setViewpoint"
+            />
             <p>
               控制页保持静音，解说开关同步到观众页。观众首次点击开启声音；微信建议使用模型配置中的音频服务解说。
             </p>
@@ -420,7 +488,7 @@ onBeforeUnmount(() => {
       <section v-else-if="panel === 'inspect'" class="settings">
         <div class="section-intro">
           <h2>看清每一步决策。</h2>
-          <p>此处可调试四家手牌。对局观众只看到近侧选手的手牌，另外三家保持隐藏。</p>
+          <p>此处可调试四家手牌。对局观众只看到所选第一视角的手牌，另外三家保持隐藏。</p>
         </div>
         <div class="inspect-actions">
           <button class="primary" @click="inspect">刷新手牌</button

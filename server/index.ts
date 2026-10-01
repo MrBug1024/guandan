@@ -65,11 +65,22 @@ function rememberRound() {
   roundInitial.history = [];
   roundOffset = game.history.length;
 }
-const clients = new Set<express.Response>();
-let presentation = { speech: false, showFeed: false };
-function snapshot(): PublicGame {
+const clients = new Map<express.Response, number | undefined>();
+let presentation = {
+  speech: false,
+  showFeed: false,
+  viewpointSeat: 0,
+  cameraMode: 'first' as 'first' | 'third',
+};
+function snapshot(viewpointSeat?: number): PublicGame {
   return {
-    ...publicState(game, agents, { thinking, delayMs, autoNext, nextRoundAt }),
+    ...publicState(game, agents, {
+      thinking,
+      delayMs,
+      autoNext,
+      nextRoundAt,
+      viewpointSeat: viewpointSeat ?? presentation.viewpointSeat,
+    }),
     presentation,
     narration: {
       engine: 'api',
@@ -82,8 +93,7 @@ function broadcast() {
     const entry = game.history.at(-1);
     void narrationAudio(narrationText(entry)).catch(() => {});
   }
-  const data = `data: ${JSON.stringify(snapshot())}\n\n`;
-  for (const c of clients) c.write(data);
+  for (const [client, seat] of clients) client.write(`data: ${JSON.stringify(snapshot(seat))}\n\n`);
 }
 const Decision = Annotation.Root({
   game: Annotation<Game>(),
@@ -384,16 +394,33 @@ app.get('/api/narration', async (q, r) => {
     r.status(502).json({ error: '中文解说生成失败，请管理员检查语音服务网络与依赖' });
   }
 });
-app.get('/api/state', (_q, r) => r.json(snapshot()));
+function requestedSeat(q: express.Request): number | undefined {
+  if (q.query.seat === undefined) return undefined;
+  return z.enum(['0', '1', '2', '3']).transform(Number).parse(q.query.seat);
+}
+app.get('/api/state', (q, r) => {
+  try {
+    r.json(snapshot(requestedSeat(q)));
+  } catch {
+    r.status(400).json({ error: '视角座位无效' });
+  }
+});
 app.get('/api/events', (q, r) => {
+  let seat: number | undefined;
+  try {
+    seat = requestedSeat(q);
+  } catch {
+    r.status(400).json({ error: '视角座位无效' });
+    return;
+  }
   r.set({
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   });
   r.flushHeaders();
-  clients.add(r);
-  r.write(`data: ${JSON.stringify(snapshot())}\n\n`);
+  clients.set(r, seat);
+  r.write(`data: ${JSON.stringify(snapshot(seat))}\n\n`);
   const heartbeat = setInterval(() => r.write(': heartbeat\n\n'), 15000);
   q.on('close', () => {
     clients.delete(r);
@@ -424,7 +451,12 @@ app.post('/api/control', async (q, r) => {
   try {
     if (q.body.action === 'presentation') {
       const settings = z
-        .object({ speech: z.boolean().optional(), showFeed: z.boolean().optional() })
+        .object({
+          speech: z.boolean().optional(),
+          showFeed: z.boolean().optional(),
+          cameraMode: z.enum(['first', 'third']).optional(),
+          viewpointSeat: z.number().int().min(0).max(3).optional(),
+        })
         .strict()
         .parse(q.body.presentation);
       presentation = { ...presentation, ...settings };

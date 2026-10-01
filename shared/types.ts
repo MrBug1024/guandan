@@ -89,7 +89,7 @@ export interface Game {
 }
 export interface PublicGame extends Omit<Game, 'hands'> {
   narration?: { engine: 'browser' | 'api'; ready: boolean };
-  presentation?: { speech: boolean; showFeed: boolean };
+  presentation?: { speech: boolean; showFeed: boolean; cameraMode?: 'first' | 'third' };
   counts: number[];
   hands?: Card[][];
   agents: AgentConfig[];

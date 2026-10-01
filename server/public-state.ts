@@ -23,6 +23,7 @@ export function publicState(
   game: Game,
   agents: AgentConfig[],
   options: {
+    viewpointSeat?: number;
     thinking: number | null;
     delayMs: number;
     autoNext: boolean;
@@ -35,7 +36,7 @@ export function publicState(
     counts: hands.map((h) => h.length),
     agents: agents.map(safeAgent),
     ...options,
-    viewpointSeat: 0,
-    visibleHand: hands[0],
+    viewpointSeat: options.viewpointSeat ?? 0,
+    visibleHand: hands[options.viewpointSeat ?? 0],
   };
 }
