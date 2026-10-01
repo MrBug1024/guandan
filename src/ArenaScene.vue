@@ -24,7 +24,8 @@ const emit = defineEmits<{
   anchors: [positions: { x: number; y: number }[]];
 }>();
 const host = ref<HTMLDivElement>(),
-  fallback = ref(false);
+  fallback = ref(false),
+  fallbackMessage = ref('');
 let renderer: THREE.WebGLRenderer | undefined,
   scene: THREE.Scene,
   frame = 0,
@@ -815,7 +816,17 @@ onMounted(() => {
       renderer!.render(scene, camera);
     };
     animate();
-  } catch {
+  } catch (error) {
+    console.error('[ArenaScene] 3D table initialization failed', error);
+    fallbackMessage.value = renderer
+      ? '3D 牌桌加载失败，请刷新重试。手牌与对局动态仍可查看。'
+      : '浏览器暂时无法创建 3D 画面。请关闭多余牌桌标签页后刷新；手牌与对局动态仍可查看。';
+    cancelAnimationFrame(frame);
+    observer?.disconnect();
+    renderer?.dispose();
+    renderer?.forceContextLoss();
+    renderer?.domElement.remove();
+    renderer = undefined;
     fallback.value = true;
   }
 });
@@ -832,12 +843,16 @@ onBeforeUnmount(() => {
   resources.forEach((m) => m.dispose());
   environment?.dispose();
   renderer?.dispose();
+  // dispose() releases Three.js resources but does not release the browser's
+  // context slot. Explicitly release it when navigating or replacing via HMR.
+  renderer?.forceContextLoss();
+  renderer?.domElement.remove();
 });
 </script>
 <template>
   <div ref="host" class="immersive-scene">
     <div v-if="fallback" class="scene-fallback">
-      当前浏览器无法启用 WebGL，手牌与对局动态仍可查看。
+      {{ fallbackMessage }}
     </div>
   </div>
 </template>
