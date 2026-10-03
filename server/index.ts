@@ -9,6 +9,7 @@ import { defaults, decide, heuristic } from './agents.js';
 import { applyMove, legalMoves, newGame, nextRound } from './rules.js';
 import { publicState, safeAgent } from './public-state.js';
 import { createAccess } from './access.js';
+import { ROUND_CELEBRATION_MS } from '../shared/broadcast-timing.js';
 import {
   gameFrame,
   type AgentConfig,
@@ -153,7 +154,8 @@ async function step() {
     if (generation !== epoch) return;
     const wasRunning = game.status === 'running';
     const move = applyMove(game, result.move.id);
-    if (game.status === 'round-over' && autoNext && wasRunning) nextRoundAt = Date.now() + 5000;
+    if (game.status === 'round-over' && autoNext && wasRunning)
+      nextRoundAt = Date.now() + ROUND_CELEBRATION_MS;
     game.history.push({
       seq: game.history.length + 1,
       seat,

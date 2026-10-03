@@ -1,0 +1,168 @@
+.match-page.arena-broadcast {
+  --arena-text: #e8eef1;
+  --arena-secondary: #bdcbd3;
+}
+.match-page.arena-broadcast .match-notice {
+  width: 176px;
+  padding: 12px 14px;
+  gap: 7px;
+  background: #15232ff5;
+}
+.match-page.arena-broadcast .match-notice strong {
+  font-size: 23px;
+  line-height: 1.2;
+  letter-spacing: 3px;
+  font-weight: 800;
+  color: #ff858b;
+  white-space: nowrap;
+}
+.match-page.arena-broadcast .match-notice span,
+.match-page.arena-broadcast .match-notice small {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffc1c3;
+  white-space: nowrap;
+}
+.match-page.arena-broadcast .match-score > span {
+  font-size: 13px;
+}
+.match-page.arena-broadcast .match-score > div small {
+  font-size: 11px;
+  color: var(--arena-secondary);
+}
+.match-page.arena-broadcast .match-score b {
+  font-variant-numeric: tabular-nums;
+  font-size: 27px;
+}
+.match-page.arena-broadcast .match-score > div strong {
+  font-size: 21px;
+  color: var(--arena-text);
+}
+.match-page.arena-broadcast .table-rules summary {
+  font-size: 13px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+.match-page.arena-broadcast .table-rules p {
+  font-size: 13px;
+  line-height: 1.8;
+  color: var(--arena-text);
+}
+.match-page.arena-broadcast .table-status {
+  font-size: 13px;
+  font-weight: 600;
+  text-shadow: 0 2px 5px #05291f;
+}
+.match-page.arena-broadcast .match-controls button {
+  font-size: 13px;
+  min-height: 40px;
+  padding: 8px 12px;
+  color: var(--arena-text);
+}
+.match-page.arena-broadcast .match-controls .match-play {
+  color: #28231d;
+  font-weight: 600;
+}
+.match-page.arena-broadcast .match-controls label,
+.match-page.arena-broadcast .match-controls > span {
+  font-size: 12px;
+  color: var(--arena-secondary);
+}
+.match-page.arena-broadcast .match-controls input {
+  width: 15px;
+  height: 15px;
+}
+.match-page.arena-broadcast .hand-heading {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.match-page.arena-broadcast .action-bubble {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.match-page.arena-broadcast .action-bubble small {
+  font-size: 11px;
+  color: #50534d;
+}
+@media (min-width: 901px) and (min-height: 541px) {
+  .match-page.arena-broadcast:not(.view-third):not(:has(.arena-settlement)) .match-notice {
+    top: 92px;
+    left: 50%;
+    width: auto;
+    transform: translateX(calc(-50% - 55px));
+    flex-direction: row;
+    align-items: center;
+    padding: 7px 13px;
+    gap: 14px;
+  }
+  .match-page.arena-broadcast:not(.view-third):not(:has(.arena-settlement)) .table-rules {
+    top: 92px;
+    left: calc(50% + 152px);
+    right: auto;
+    padding: 0 10px;
+  }
+  .match-page.arena-broadcast:not(.view-third):not(:has(.arena-settlement)) .table-rules[open] {
+    left: auto;
+    right: 24px;
+  }
+}
+@media (max-width: 700px) {
+  .match-page.arena-broadcast.match-portrait .match-notice {
+    top: calc(121px + env(safe-area-inset-top));
+    left: 14px;
+    right: 14px;
+    width: auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 7px 10px;
+    gap: 10px;
+  }
+  .match-page.arena-broadcast.match-portrait .match-notice strong {
+    font-size: 17px;
+    letter-spacing: 1px;
+  }
+  .match-page.arena-broadcast.match-portrait .match-notice span {
+    font-size: 11px;
+  }
+  .match-page.arena-broadcast .match-score > span {
+    font-size: 11px;
+  }
+  .match-page.arena-broadcast .match-score b {
+    font-size: 24px;
+    padding: 0 6px;
+  }
+  .match-page.arena-broadcast .match-score > div strong {
+    font-size: 19px;
+  }
+  .match-page.arena-broadcast .match-controls button {
+    font-size: 12px;
+    padding: 7px 8px;
+  }
+  .match-page.arena-broadcast .match-controls label {
+    font-size: 11px;
+  }
+  .match-page.arena-broadcast .hand-heading {
+    font-size: 12px;
+  }
+  .match-page.arena-broadcast .table-rules summary {
+    font-size: 12px;
+  }
+  .match-page.arena-broadcast.match-portrait .table-rules {
+    top: calc(163px + env(safe-area-inset-top));
+  }
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  .match-page.arena-broadcast .match-notice {
+    width: 172px;
+    padding: 7px 10px;
+  }
+  .match-page.arena-broadcast .match-notice strong {
+    font-size: 19px;
+  }
+  .match-page.arena-broadcast .match-controls button {
+    font-size: 12px;
+    padding: 6px 8px;
+    min-height: 36px;
+  }
+}

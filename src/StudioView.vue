@@ -5,6 +5,7 @@ import { replaySession } from './replay';
 import { admin, sharePath } from './auth';
 import ViewPicker from './ViewPicker.vue';
 import UiIcon from './UiIcon.vue';
+import { ROUND_CELEBRATION_MS } from '../shared/broadcast-timing';
 const router = useRouter(),
   route = useRoute();
 const panel = computed(() => String(route.name ?? 'lobby'));
@@ -347,7 +348,9 @@ onBeforeUnmount(() => {
         </div>
         <div class="lobby-info">
           <span>第 {{ state.round }} 局 · 打 {{ rankName(state.level) }}</span
-          ><span>{{ state.autoNext ? '连续对局 · 局间停留 8 秒' : '单局模式' }}</span
+          ><span>{{
+            state.autoNext ? `连续对局 · 局间庆祝 ${ROUND_CELEBRATION_MS / 1000} 秒` : '单局模式'
+          }}</span
           ><RouterLink to="/arena">只进入观战画面 ↗</RouterLink>
           <button :disabled="pending" @click="control('restart')">重新开始比赛</button>
         </div>
@@ -397,8 +400,7 @@ onBeforeUnmount(() => {
                 <label class="check"
                   ><input type="checkbox" v-model="a.jev.deleteKey" /> 保存时删除 JEV Key</label
                 >
-                </template
-              > </template
+              </template> </template
             ><label class="check" v-if="a.provider === 'openai'"
               ><input type="checkbox" v-model="a.deleteKey" /> 保存时删除模型 Key</label
             ><label

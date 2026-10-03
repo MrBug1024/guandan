@@ -4,6 +4,9 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { rankName, type Card, type Entry, type Move } from '../shared/types';
+import type { ArenaMood } from './arena-events';
+import type { PlayerAnchor } from './arena-projection';
+import { createRobotBuilder, ROBOT_FACE, type RobotRig } from './arena-robot';
 const props = defineProps<{
   cameraMode: 'first' | 'third';
   viewpointSeat: number;
@@ -19,9 +22,14 @@ const props = defineProps<{
   last: Move | null;
   lastSeat: number;
   gameId: string;
+  moods: (ArenaMood | undefined)[];
+  reducedMotion: boolean;
+  settlement: boolean;
+  winnerTeam: number | null;
 }>();
 const emit = defineEmits<{
-  anchors: [positions: { x: number; y: number }[]];
+  anchors: [positions: PlayerAnchor[]];
+  tableAnchor: [position: { x: number; y: number }];
 }>();
 const host = ref<HTMLDivElement>(),
   fallback = ref(false),
@@ -30,17 +38,16 @@ let renderer: THREE.WebGLRenderer | undefined,
   scene: THREE.Scene,
   frame = 0,
   observer: ResizeObserver;
-interface Actor {
+interface Actor extends RobotRig {
   root: THREE.Group;
-  body: THREE.Group;
-  head: THREE.Group;
-  left: THREE.Group;
-  right: THREE.Group;
   fan: THREE.Group;
-  eyes: THREE.Mesh[];
-  eyeGlints: THREE.Mesh[];
+  emotionWeight: number;
+  chair: THREE.Group;
+  seatHalo: THREE.Mesh;
   headVelocity: number;
   bodyVelocity: number;
+  nextBlink: number;
+  blinkStart: number;
 }
 const actors: Actor[] = [],
   textures: THREE.Texture[] = [],
@@ -96,11 +103,11 @@ function material(color: number, roughness = 0.65) {
 function characterMaterial(color: number) {
   const surface = new THREE.MeshPhysicalMaterial({
     color,
-    roughness: 0.48,
+    roughness: 0.52,
     metalness: 0,
     clearcoat: 0.18,
     clearcoatRoughness: 0.5,
-    sheen: 0.16,
+    sheen: 0.36,
     sheenRoughness: 0.85,
     sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), 0.45),
   });
@@ -117,7 +124,8 @@ function characterMaterial(color: number) {
       ctx.fillRect(x, y, 1, 1);
     }
   });
-  surface.bumpScale = 0.004;
+  surface.bumpMap.colorSpace = THREE.NoColorSpace;
+  surface.bumpScale = 0.0025;
   resources.add(surface);
   return surface;
 }
@@ -339,7 +347,7 @@ onMounted(() => {
     const pmrem = new THREE.PMREMGenerator(renderer);
     environment = pmrem.fromScene(studio, 0.04);
     scene.environment = environment.texture;
-    scene.environmentIntensity = 0.16;
+    scene.environmentIntensity = 0.26;
     studio.dispose();
     pmrem.dispose();
     host.value!.appendChild(renderer.domElement);
@@ -358,6 +366,9 @@ onMounted(() => {
     const fill = new THREE.PointLight(0x7db8d7, 18);
     fill.position.set(5, 6, -5);
     scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xb9d7ef, 0.65);
+    rim.position.set(0, 5, -7);
+    scene.add(rim);
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), material(0x202a36, 0.96));
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -0.38;
@@ -452,12 +463,27 @@ onMounted(() => {
       [[0, 0, -3.6], 0],
       [[3.6, 0, 0], -Math.PI / 2],
     ];
+    const tableAccessories: THREE.Mesh[] = [];
+    const buildRobot = createRobotBuilder(characterMaterial(palette[0]).bumpMap!);
     for (let i = 0; i < 4; i++) {
       const [position, yaw] = positions[i],
         root = new THREE.Group();
       root.position.set(...position);
       root.rotation.y = yaw;
       scene.add(root);
+      const seatHalo = new THREE.Mesh(
+        new THREE.RingGeometry(0.98, 1.05, 64),
+        new THREE.MeshBasicMaterial({
+          color: palette[i],
+          transparent: true,
+          opacity: 0.5,
+          depthWrite: false,
+        }),
+      );
+      seatHalo.rotation.x = -Math.PI / 2;
+      seatHalo.position.set(0, -0.325, -0.08);
+      seatHalo.visible = false;
+      root.add(seatHalo);
       const contactMap = texture('seat-contact', (ctx, c) => {
         const gradient = ctx.createRadialGradient(256, 384, 15, 256, 384, 250);
         gradient.addColorStop(0, '#00000080');
@@ -483,96 +509,21 @@ onMounted(() => {
         box(chair, 0x8b7260, [0.1, 1.14, 0.12], [side * 0.66, 0.15, 0.4]);
         box(chair, 0x353d4c, [0.15, 0.15, 0.95], [side * 0.75, 1.23, -0.08]);
       }
-      const body = new THREE.Group();
-      body.position.y = 0.95;
-      root.add(body);
-      sphere(body, palette[i], [0.57, 0.61, 0.46], [0, 0.49, 0]);
-      sphere(body, 0xffeed8, [0.4, 0.46, 0.21], [0, 0.49, 0.34]);
-      const hips = new THREE.Group();
-      hips.position.y = 0.95;
-      root.add(hips);
-      for (const side of [-1, 1]) {
-        sphere(hips, palette[i], [0.28, 0.29, 0.39], [side * 0.38, 0.1, 0.39]);
-        sphere(hips, palette[i], [0.22, 0.52, 0.22], [side * 0.38, -0.5, 0.46]);
-        sphere(hips, palette[i], [0.24, 0.15, 0.29], [side * 0.39, -1.16, 0.59]);
-      }
-      const head = new THREE.Group();
-      head.position.set(0, 1.46, 0);
-      head.scale.setScalar(0.82);
-      body.add(head);
-      sphere(head, palette[i], [0.77, 0.64, 0.61], [0, 0, 0]);
-      sphere(head, 0xffeed8, [0.4, 0.24, 0.18], [0, -0.25, 0.49]);
-      const eyes: THREE.Mesh[] = [],
-        eyeGlints: THREE.Mesh[] = [];
-      for (const side of [-1, 1]) {
-        const ear = new THREE.Group();
-        ear.position.set(side * 0.47, i === 1 ? 0.69 : 0.52, -0.015);
-        ear.rotation.z = side * -0.22;
-        head.add(ear);
-        sphere(
-          ear,
-          palette[i],
-          i === 1 ? [0.18, 0.57, 0.18] : i === 2 ? [0.25, 0.23, 0.23] : [0.22, 0.33, 0.2],
-          [0, 0, 0],
-        );
-        sphere(
-          ear,
-          i === 2 ? 0x668577 : 0xf5c5c4,
-          i === 1 ? [0.1, 0.4, 0.085] : [0.12, 0.17, 0.09],
-          [0, 0.02, 0.15],
-        );
-        eyes.push(sphere(head, 0x243039, [0.075, 0.11, 0.055], [side * 0.25, 0.04, 0.568]));
-        const eyeMaterial = eyes.at(-1)!.material as THREE.MeshPhysicalMaterial;
-        eyeMaterial.roughness = 0.18;
-        eyeMaterial.clearcoat = 0.8;
-        eyeMaterial.bumpScale = 0;
-        eyeGlints.push(
-          sphere(head, 0xffffff, [0.018, 0.022, 0.009], [side * 0.25 - 0.018, 0.067, 0.617]),
-        );
-        sphere(head, 0xe593a4, [0.095, 0.04, 0.012], [side * 0.41, -0.13, 0.503]);
-      }
-      sphere(head, 0x704956, [0.056, 0.037, 0.033], [0, -0.25, 0.668]);
-      const mouth = new THREE.Mesh(
-        new THREE.TorusGeometry(0.07, 0.012, 8, 20, Math.PI),
-        material(0x704956),
-      );
-      mouth.rotation.z = Math.PI;
-      mouth.position.set(0, -0.32, 0.652);
-      head.add(mouth);
-      const antennaHeight = i === 1 ? 0.98 : 0.86;
-      const antenna = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.025, 0.03, antennaHeight - 0.64, 12),
-        material(0xb99b65, 0.35),
-      );
-      antenna.position.set(0, (antennaHeight + 0.64) / 2, 0);
-      head.add(antenna);
-      sphere(head, 0xe9c67f, [0.07, 0.07, 0.07], [0, antennaHeight, 0]);
-      const left = new THREE.Group(),
-        right = new THREE.Group();
-      left.position.set(-0.47, 0.59, 0.5);
-      right.position.set(0.47, 0.59, 0.5);
-      body.add(left, right);
-      for (const [arm, side] of [
-        [left, -1],
-        [right, 1],
-      ] as [THREE.Group, number][]) {
-        sphere(arm, palette[i], [0.16, 0.15, 0.34], [side * 0.07, -0.06, 0.26]);
-        sphere(arm, palette[i], [0.16, 0.16, 0.18], [side * 0.02, -0.04, 0.49]);
-      }
+      const rig = buildRobot(root, i, palette[i]);
       const fan = new THREE.Group();
       fan.position.set(0, 1.66, 1.04);
       root.add(fan);
       actors.push({
+        ...rig,
         root,
-        body,
-        head,
-        left,
-        right,
         fan,
-        eyes,
-        eyeGlints,
+        emotionWeight: 0,
+        chair,
+        seatHalo,
         headVelocity: 0,
         bodyVelocity: 0,
+        nextBlink: 1.8 + i * 0.73,
+        blinkStart: -1,
       });
       const cup = new THREE.Mesh(
         new THREE.CylinderGeometry(0.12, 0.1, 0.24, 24),
@@ -581,8 +532,32 @@ onMounted(() => {
       cup.position.copy(root.localToWorld(new THREE.Vector3(1.05, 1.48, 1.34)));
       cup.castShadow = true;
       scene.add(cup);
+      tableAccessories.push(cup);
     }
     scene.add(temporary);
+    const victoryStage = new THREE.Group();
+    const podium = new THREE.Mesh(
+      new THREE.CylinderGeometry(4.6, 4.8, 0.2, 80),
+      material(0x172a35, 0.4),
+    );
+    podium.position.y = -0.28;
+    podium.receiveShadow = true;
+    victoryStage.add(podium);
+    const stageTrim = new THREE.Mesh(
+      new THREE.TorusGeometry(4.6, 0.024, 8, 80),
+      new THREE.MeshBasicMaterial({ color: 0xeacb86 }),
+    );
+    stageTrim.rotation.x = -Math.PI / 2;
+    stageTrim.position.y = -0.17;
+    victoryStage.add(stageTrim);
+    for (const x of [-2.8, 2.8]) {
+      const light = new THREE.SpotLight(0xffdca0, 26, 18, 0.38, 0.75);
+      light.position.set(x, 7, 2);
+      light.target.position.set(x * 0.4, 0, 0);
+      victoryStage.add(light, light.target);
+    }
+    victoryStage.visible = false;
+    scene.add(victoryStage);
     scene.add(camera);
     scene.add(firstPerson);
     firstPerson.add(heldCards);
@@ -631,27 +606,41 @@ onMounted(() => {
       camera.position.set(Math.sin(yaw) * distance, 2.56, Math.cos(yaw) * distance);
       camera.up.set(0, 1, 0);
       camera.lookAt(0, 1.12, 0);
-      // Keep a useful horizontal field of view in portrait, rather than cropping
-      // the desktop projection to a narrow strip through the table and our hands.
-      camera.fov = narrow
-        ? THREE.MathUtils.radToDeg(
-            2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(50)) / camera.aspect),
-          )
-        : 75;
+      // Preserve the side characters on tall desktop windows as well as phones.
+      const horizontalHalf = THREE.MathUtils.lerp(
+        50,
+        57,
+        THREE.MathUtils.clamp((camera.aspect - 0.8) / 0.4, 0, 1),
+      );
+      camera.fov = Math.max(
+        75,
+        THREE.MathUtils.radToDeg(
+          2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(horizontalHalf)) / camera.aspect),
+        ),
+      );
       camera.zoom = 1;
       if (overview) {
         camera.position.set(0, narrow ? 8.2 : 7.6, narrow ? 7.2 : 9.4);
         camera.lookAt(0, 1.1, 0);
         camera.fov = narrow
           ? THREE.MathUtils.radToDeg(
-              2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(24)) / camera.aspect),
+              2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(26)) / camera.aspect),
             )
           : height < 360
             ? 36
             : 44;
       }
+      if (props.settlement) {
+        camera.position.set(0, 4.6, 11.5);
+        camera.lookAt(0, narrow ? 0.45 : 0.7, 0);
+        camera.fov = narrow
+          ? THREE.MathUtils.radToDeg(
+              2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(24)) / camera.aspect),
+            )
+          : 42;
+      }
       firstPerson.visible = !overview;
-      firstPerson.position.copy(actors[props.viewpointSeat].root.position);
+      firstPerson.position.set(...positions[props.viewpointSeat][0]);
       // Bring the grip slightly closer on portrait screens so the rank corners
       // remain legible after widening the view to include the other players.
       if (narrow)
@@ -669,32 +658,72 @@ onMounted(() => {
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
       scene.updateMatrixWorld(true);
+      updateAnchors();
+    };
+    const projectedPoint = new THREE.Vector3();
+    const updateAnchors = () => {
       const bounds = host.value!.getBoundingClientRect();
       const parent = host.value!.parentElement!.getBoundingClientRect();
+      projectedPoint.set(0, 1.7, -0.35).project(camera);
+      emit('tableAnchor', {
+        x: bounds.left - parent.left + ((projectedPoint.x + 1) * bounds.width) / 2,
+        y: bounds.top - parent.top + ((1 - projectedPoint.y) * bounds.height) / 2,
+      });
       emit(
         'anchors',
-        actors.map(({ root }) => {
+        actors.map(({ root, body, hips }) => {
           const point = root.localToWorld(new THREE.Vector3(0, 1.59, 0)).project(camera);
+          const character = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+          for (const group of [body, hips])
+            group.traverseVisible((mesh) => {
+              if (!(mesh instanceof THREE.Mesh)) return;
+              if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+              const box = mesh.geometry.boundingBox!;
+              for (let corner = 0; corner < 8; corner++) {
+                projectedPoint
+                  .set(
+                    corner & 1 ? box.max.x : box.min.x,
+                    corner & 2 ? box.max.y : box.min.y,
+                    corner & 4 ? box.max.z : box.min.z,
+                  )
+                  .applyMatrix4(mesh.matrixWorld)
+                  .project(camera);
+                const x = bounds.left - parent.left + ((projectedPoint.x + 1) * bounds.width) / 2;
+                const y = bounds.top - parent.top + ((1 - projectedPoint.y) * bounds.height) / 2;
+                character.left = Math.min(character.left, x);
+                character.right = Math.max(character.right, x);
+                character.top = Math.min(character.top, y);
+                character.bottom = Math.max(character.bottom, y);
+              }
+            });
           return {
-            x: bounds.left - parent.left + ((point.x + 1) * width) / 2,
-            y: bounds.top - parent.top + ((1 - point.y) * height) / 2,
+            x: bounds.left - parent.left + ((point.x + 1) * bounds.width) / 2,
+            y: bounds.top - parent.top + ((1 - point.y) * bounds.height) / 2,
+            bounds: character,
           };
         }),
       );
     };
-    watch(() => [props.viewpointSeat, props.cameraMode], resize);
+    watch(() => [props.viewpointSeat, props.cameraMode, props.settlement], resize);
     observer = new ResizeObserver(resize);
     observer.observe(host.value!);
     resize();
     const clock = new THREE.Clock();
     let attentionSeat = props.thinking ?? props.turn,
-      attentionTime = -10;
+      attentionTime = -10,
+      anchorTime = -1;
     const animate = () => {
       frame = requestAnimationFrame(animate);
       const dt = Math.min(0.05, clock.getDelta()),
         t = clock.elapsedTime;
       updateFans();
       updateHeldCards();
+      table.visible = !props.settlement;
+      temporary.visible = !props.settlement;
+      victoryStage.visible = props.settlement;
+      tableAccessories.forEach((accessory) => {
+        accessory.visible = !props.settlement;
+      });
       const activeSeat = props.thinking ?? props.turn;
       if (activeSeat !== attentionSeat) {
         attentionSeat = activeSeat;
@@ -719,14 +748,45 @@ onMounted(() => {
         for (const entry of updates) playCards(entry, t, entry.seq !== previousSeq);
       }
       actors.forEach((a, i) => {
+        const narrow = camera.aspect < 1.15;
+        const winning = i % 2 === props.winnerTeam;
+        const partnerIndex = Math.floor(i / 2);
+        const stageX = winning
+          ? partnerIndex === 0
+            ? -1.15
+            : 1.15
+          : partnerIndex === 0
+            ? -3.15
+            : 3.15;
+        const stageZ = winning ? 0.8 : -0.65;
+        const targetPosition = props.settlement
+          ? new THREE.Vector3(
+              narrow ? (partnerIndex === 0 ? -1 : 1) * (winning ? 1.05 : 2.7) : stageX,
+              winning ? 0.18 : 0.25,
+              narrow ? (winning ? 1.25 : -1) : stageZ,
+            )
+          : new THREE.Vector3(...positions[i][0]);
+        a.root.position.lerp(targetPosition, props.reducedMotion ? 1 : 1 - Math.exp(-dt * 5));
+        a.chair.visible = !props.settlement;
+        a.seatHalo.visible = !props.settlement && activeSeat === i && !props.finished.includes(i);
+        (a.seatHalo.material as THREE.MeshBasicMaterial).opacity = props.reducedMotion
+          ? 0.55
+          : 0.5 + Math.sin(t * 2) * 0.12;
+        a.root.visible =
+          props.settlement || props.cameraMode === 'third' || i !== props.viewpointSeat;
+        const mood = props.moods[i];
+        const motion = props.reducedMotion ? 0 : 1;
+        const mt = props.reducedMotion ? 0 : t;
+        a.emotionWeight = THREE.MathUtils.damp(a.emotionWeight, mood ? 1 : 0, 5, dt);
+        const emotion = a.emotionWeight;
         const thinking = props.thinking === i,
           elapsed = t - actionTime,
           acting = actionSeat === i && elapsed < 1.35,
           reach =
-            acting && props.entry?.move?.kind !== 'pass'
+            motion && acting && props.entry?.move?.kind !== 'pass'
               ? Math.sin(Math.min(1, elapsed / 1.15) * Math.PI)
               : 0;
-        a.body.rotation.x = 0.02 + Math.sin(t * 1.55 + i) * 0.008 + reach * 0.045;
+        a.body.rotation.x = 0.02 + Math.sin(mt * 1.55 + i) * 0.008 * motion + reach * 0.045;
         // Attention follows public game events. There is no periodic gaze scheduler.
         const responding = t - attentionTime > 0.1 + i * 0.055;
         const watchingSeat = responding ? activeSeat : actionSeat >= 0 ? actionSeat : activeSeat;
@@ -747,6 +807,7 @@ onMounted(() => {
         const relative = Math.atan2(delta.x, delta.z) - a.root.rotation.y;
         let gaze = Math.atan2(Math.sin(relative), Math.cos(relative));
         const ownHighlight =
+          !props.reducedMotion &&
           i === 0 &&
           actionSeat === 0 &&
           elapsed > 0.9 &&
@@ -755,12 +816,18 @@ onMounted(() => {
             ['bomb', 'flush', 'kings'].includes(props.entry?.move?.kind ?? ''));
         // A brief audience acknowledgement is tied to finishing or a strong play.
         if (ownHighlight) gaze = 2.65 * Math.sin(((elapsed - 0.9) / 2.7) * Math.PI);
-        const bodyTarget = ownHighlight
-          ? gaze * 0.19
-          : THREE.MathUtils.clamp(gaze * 0.18, -0.2, 0.2);
-        const headTarget = ownHighlight
+        let bodyTarget = ownHighlight ? gaze * 0.19 : THREE.MathUtils.clamp(gaze * 0.18, -0.2, 0.2);
+        let headTarget = ownHighlight
           ? gaze - bodyTarget
           : THREE.MathUtils.clamp(gaze - bodyTarget, -1.12, 1.12);
+        if (mood === 'celebrate' || mood === 'sad' || mood === 'proud') {
+          // Turn the whole character toward the audience; the chair stays put.
+          const audience = camera.position.clone().sub(a.root.position);
+          const angle = Math.atan2(audience.x, audience.z) - a.root.rotation.y;
+          const facing = Math.atan2(Math.sin(angle), Math.cos(angle));
+          bodyTarget = THREE.MathUtils.lerp(bodyTarget, facing * 0.72, emotion);
+          headTarget = THREE.MathUtils.lerp(headTarget, facing * 0.28, emotion);
+        }
         a.headVelocity += (38 * (headTarget - a.head.rotation.y) - 12 * a.headVelocity) * dt;
         a.head.rotation.y += a.headVelocity * dt;
         a.bodyVelocity += (14 * (bodyTarget - a.body.rotation.y) - 7.5 * a.bodyVelocity) * dt;
@@ -780,8 +847,9 @@ onMounted(() => {
           1 - Math.exp(-dt * 3),
         );
         a.eyes.forEach((eye, j) => {
-          eye.position.x = (j === 0 ? -0.25 : 0.25) + eyeGaze * 0.035;
-          a.eyeGlints[j].position.x = eye.position.x - 0.018;
+          eye.position.x = (j === 0 ? -ROBOT_FACE.eyeX : ROBOT_FACE.eyeX) + eyeGaze * 0.026;
+          a.eyeGlints[j].position.x = eye.position.x;
+          a.eyeSmiles[j].position.x = eye.position.x;
         });
         const pressure = thinking && props.last && props.lastSeat % 2 !== i % 2;
         const ponder = pressure ? Math.min(1, (t - attentionTime) / 1.6) * 0.5 : 0;
@@ -794,26 +862,180 @@ onMounted(() => {
         a.left.position.y = 0.59 + ponder * 0.02;
         a.right.rotation.x = -reach * 0.25;
         a.right.position.z = 0.5 + reach * 0.24;
-        a.fan.rotation.z = thinking ? Math.sin(t * 1.8) * 0.025 : 0;
+        a.fan.rotation.z = thinking ? Math.sin(mt * 1.8) * 0.025 * motion : 0;
         a.fan.position.y = 1.66;
         a.fan.visible = props.counts[i] > 0 && !(props.cameraMode === 'third' && i === 0);
-        const blink = (t + i * 0.63) % 4.7 < 0.13;
-        a.eyes.forEach((e) => (e.scale.y = blink ? 0.02 : 0.11));
-        a.eyeGlints.forEach((e) => {
-          e.visible = !blink;
-        });
+        if (motion && t >= a.nextBlink) {
+          a.blinkStart = t;
+          a.nextBlink = t + 4.1 + Math.sin(t * 0.83 + i) * 1.15 + i * 0.13;
+        }
+        const blinkPhase = (t - a.blinkStart) / 0.22;
+        const blink =
+          motion && blinkPhase >= 0 && blinkPhase <= 1
+            ? Math.pow(Math.sin(blinkPhase * Math.PI), 0.7)
+            : 0;
+        a.eyes.forEach((eye) =>
+          eye.scale.set(
+            ROBOT_FACE.eyeWidth,
+            ROBOT_FACE.eyeHeight * (1 - blink * 0.94),
+            ROBOT_FACE.eyeDepth,
+          ),
+        );
         if (props.finished.includes(i) && actionSeat === i && elapsed < 3.5) {
-          a.right.rotation.z = -0.35 - Math.sin(t * 3) * 0.14;
+          a.right.rotation.z = -0.35 - Math.sin(mt * 3) * 0.14 * motion;
         } else a.right.rotation.z = -reach * 0.22;
+        // Poses are blended over the normal table animation and use reusable meshes.
+        const breath = Math.sin(mt * 1.65 + i * 0.8) * motion;
+        a.body.scale.set(1 + breath * 0.004, 1 + breath * 0.006, 1 + breath * 0.003);
+        let bodyY = 0.95 + breath * 0.006,
+          roll = 0,
+          lean = a.body.rotation.x;
+        let leftX = a.left.rotation.x,
+          rightX = a.right.rotation.x;
+        let leftZ = a.left.rotation.z,
+          rightZ = a.right.rotation.z;
+        let headPitch = a.head.rotation.x;
+        a.mouth.rotation.z = Math.PI;
+        a.mouth.scale.set(1, 1, 1);
+        a.tears.forEach((tear) => {
+          tear.visible = mood === 'sad';
+        });
+        if (mood === 'celebrate') {
+          const beat = mt * 7 + i * 0.7;
+          bodyY += (0.08 + Math.abs(Math.sin(beat)) * 0.22 * motion) * emotion;
+          roll = Math.sin(beat * 0.55) * 0.13 * motion;
+          leftX = -1.65 + Math.sin(beat) * 0.3 * motion;
+          rightX = -1.65 - Math.sin(beat) * 0.3 * motion;
+          leftZ = -0.55;
+          rightZ = 0.55;
+          headPitch = -0.12;
+          a.mouth.scale.set(1.45, 1.2, 1);
+          a.fan.visible = false;
+        } else if (mood === 'clap') {
+          const clap = (0.5 + Math.sin(mt * 11) * 0.5 * motion) * 0.6;
+          leftX = rightX = -0.65;
+          leftZ = -0.6 - clap;
+          rightZ = 0.6 + clap;
+          headPitch = -0.1;
+        } else if (mood === 'shocked') {
+          lean = -0.18;
+          bodyY += 0.035;
+          leftX = rightX = -1.15;
+          leftZ = -0.25;
+          rightZ = 0.25;
+          headPitch = -0.18;
+          a.eyes.forEach((eye) => {
+            eye.scale.set(0.125, 0.18, ROBOT_FACE.eyeDepth);
+          });
+          a.mouth.rotation.z = 0;
+          a.mouth.scale.set(0.85, 1.8, 1);
+        } else if (mood === 'sad') {
+          bodyY -= 0.07;
+          lean = 0.14;
+          headPitch = 0.3;
+          roll = Math.sin(mt * 5 + i) * 0.025 * motion;
+          leftX = rightX = -1.1;
+          leftZ = -0.55;
+          rightZ = 0.55;
+          a.mouth.rotation.z = 0;
+          a.eyes.forEach((eye) => {
+            eye.scale.y = 0.075;
+          });
+          a.tears.forEach((tear, index) => {
+            const fall = props.reducedMotion ? 0.25 : (t * 1.5 + index * 0.45) % 1;
+            tear.position.y = -0.08 - fall * 0.32;
+            tear.scale.y = 0.05 + Math.sin(fall * Math.PI) * 0.04;
+          });
+          a.fan.rotation.z = -0.08;
+        } else if (mood === 'bow') {
+          lean = 0.22 + Math.sin(mt * 2.5) * 0.06 * motion;
+          headPitch = 0.3;
+          rightX = -0.45;
+        } else if (mood === 'proud') {
+          headPitch = -0.17;
+          rightX = -1.4;
+          rightZ = 0.2;
+          roll = Math.sin(mt * 3) * 0.035 * motion;
+        } else if (mood === 'worried') {
+          headPitch = 0.2;
+          leftX = -0.85;
+          leftZ = -0.2;
+          a.mouth.rotation.z = 0;
+        }
+        const blend = 1 - Math.exp(-dt * 8);
+        a.body.position.y = THREE.MathUtils.lerp(a.body.position.y, bodyY, blend);
+        a.body.rotation.z = THREE.MathUtils.lerp(a.body.rotation.z, roll * emotion, blend);
+        a.body.rotation.x = THREE.MathUtils.lerp(a.body.rotation.x, lean, emotion);
+        a.hips.position.y = a.body.position.y;
+        a.hips.rotation.y = a.body.rotation.y * emotion;
+        a.hips.rotation.z = a.body.rotation.z;
+        a.head.rotation.x = THREE.MathUtils.lerp(a.head.rotation.x, headPitch, emotion);
+        a.left.rotation.x = THREE.MathUtils.lerp(a.left.rotation.x, leftX, emotion);
+        a.right.rotation.x = THREE.MathUtils.lerp(a.right.rotation.x, rightX, emotion);
+        a.left.rotation.z = THREE.MathUtils.lerp(a.left.rotation.z, leftZ, emotion);
+        a.right.rotation.z = THREE.MathUtils.lerp(a.right.rotation.z, rightZ, emotion);
+        const smiling = mood === 'celebrate' || mood === 'clap';
+        a.eyes.forEach((eye, j) => {
+          eye.visible = !smiling;
+          a.eyeSmiles[j].visible = smiling;
+          a.eyeGlints[j].visible = !smiling && eye.scale.y > ROBOT_FACE.eyeHeight * 0.55;
+          a.eyeGlints[j].scale.y = eye.scale.y / ROBOT_FACE.eyeHeight;
+          const side = j === 0 ? -1 : 1;
+          a.brows[j].rotation.z = THREE.MathUtils.damp(
+            a.brows[j].rotation.z,
+            mood === 'sad' || mood === 'worried' ? side * -0.28 : 0,
+            6,
+            dt,
+          );
+          a.brows[j].position.y = THREE.MathUtils.damp(
+            a.brows[j].position.y,
+            mood === 'shocked' ? 0.285 : 0.24,
+            6,
+            dt,
+          );
+        });
+        a.mouth.visible = mood !== 'shocked';
+        a.surprisedMouth.visible = mood === 'shocked';
+        a.ears.forEach((ear, j) => {
+          const side = j === 0 ? -1 : 1;
+          const target =
+            motion *
+            (THREE.MathUtils.clamp(-a.headVelocity * 0.025, -0.12, 0.12) +
+              Math.sin(mt * 1.8 + i + j * 0.8) * 0.015 +
+              roll * (i === 1 ? 1.2 : 0.45));
+          let offset = (ear.userData.offset as number) || 0;
+          let velocity = (ear.userData.velocity as number) || 0;
+          velocity += (40 * (target - offset) - 7 * velocity) * dt;
+          offset += velocity * dt;
+          ear.userData.offset = props.reducedMotion ? 0 : offset;
+          ear.userData.velocity = props.reducedMotion ? 0 : velocity;
+          ear.rotation.z = ear.userData.rest + (props.reducedMotion ? 0 : offset);
+          ear.rotation.x = THREE.MathUtils.damp(
+            ear.rotation.x,
+            mood === 'sad' ? 0.2 : mood === 'shocked' ? -0.14 : breath * 0.018 * side,
+            5,
+            dt,
+          );
+        });
+        a.tail.rotation.y =
+          Math.sin(mt * (mood === 'celebrate' ? 7 : 1.8) + i) *
+          (mood === 'celebrate' ? 0.24 : 0.045) *
+          motion;
       });
       for (const pile of tablePlays) {
-        const p = Math.min(1, Math.max(0, (t - pile.userData.start - 0.16) / 0.75)),
+        const p = props.reducedMotion
+            ? 1
+            : Math.min(1, Math.max(0, (t - pile.userData.start - 0.16) / 0.75)),
           ease = 1 - Math.pow(1 - p, 3);
         pile.position.lerpVectors(pile.userData.from, pile.userData.target, ease);
         pile.position.y += Math.sin(p * Math.PI) * pile.userData.lift;
         pile.rotation.y = pile.userData.yaw + (1 - ease) * 0.25;
       }
       renderer!.render(scene, camera);
+      if (t - anchorTime > 0.18) {
+        anchorTime = t;
+        updateAnchors();
+      }
     };
     animate();
   } catch (error) {
@@ -833,14 +1055,17 @@ onMounted(() => {
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame);
   observer?.disconnect();
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>(resources);
   scene?.traverse((o) => {
     if (o instanceof THREE.Mesh) {
-      o.geometry.dispose();
-      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
+      geometries.add(o.geometry);
+      (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => materials.add(m));
     }
   });
+  geometries.forEach((geometry) => geometry.dispose());
+  materials.forEach((m) => m.dispose());
   textures.forEach((t) => t.dispose());
-  resources.forEach((m) => m.dispose());
   environment?.dispose();
   renderer?.dispose();
   // dispose() releases Three.js resources but does not release the browser's

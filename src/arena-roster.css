@@ -1,0 +1,355 @@
+.arena-roster {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.roster-team {
+  position: absolute;
+  width: 208px;
+  bottom: 124px;
+  padding: 0 10px 4px;
+  background: linear-gradient(120deg, #142430ed, #142430cc);
+  border-block: 1px solid #abc2cf38;
+}
+.roster-team-0 {
+  left: 24px;
+  --team-color: #edb5c6;
+}
+.roster-team-1 {
+  right: 24px;
+  --team-color: #b4c4ef;
+}
+.roster-team > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  color: var(--team-color);
+  margin: 0;
+}
+.roster-team > header > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+.roster-team > header > small {
+  font-size: 10px;
+  color: #becbd1;
+}
+.roster-team > header > i {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--team-color), transparent);
+  opacity: 0.35;
+}
+.roster-player {
+  position: relative;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  gap: 8px;
+  align-items: center;
+  min-height: 61px;
+  padding: 7px 0 9px;
+}
+.roster-player + .roster-player {
+  border-top: 1px solid #bfd0d51a;
+}
+.roster-player::before {
+  content: '';
+  position: absolute;
+  inset: 0 -10px;
+  background: linear-gradient(90deg, var(--seat-color), transparent);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.roster-active::before {
+  opacity: 0.13;
+}
+.roster-avatar {
+  width: 40px;
+  height: 42px;
+  position: relative;
+}
+.robot-portrait {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 2px 3px #0004);
+}
+.roster-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  position: relative;
+}
+.roster-name strong {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #f0f3f3;
+}
+.roster-name small {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: #bccbd3;
+}
+.roster-activity {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #b8c9d1;
+  position: relative;
+}
+.roster-active .roster-activity {
+  color: var(--seat-color);
+}
+.roster-thinking {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #ffffff25;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  border-radius: 50%;
+  animation: roster-spin 1.4s linear infinite;
+}
+.roster-turn {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+}
+.roster-count {
+  text-align: right;
+  position: relative;
+}
+.roster-count b {
+  display: block;
+  font-size: 26px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #edf1f3;
+}
+.roster-count small {
+  display: block;
+  font-size: 10px;
+  margin-top: 4px;
+  color: #b8c9d1;
+  white-space: nowrap;
+}
+.roster-count .roster-place {
+  font-size: 17px;
+  color: var(--seat-color);
+}
+.roster-count.roster-low b {
+  color: #ffcf8d;
+}
+.roster-progress {
+  position: absolute;
+  bottom: 3px;
+  left: 48px;
+  right: 0;
+  height: 2px;
+  background: #ffffff0c;
+  overflow: hidden;
+}
+.roster-progress i {
+  display: block;
+  height: 100%;
+  background: var(--seat-color);
+  opacity: 0.55;
+  transform-origin: left;
+  transition: transform 0.35s;
+}
+.roster-finished .roster-progress {
+  display: none;
+}
+.match-page.arena-broadcast .hand-heading strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.match-page.arena-broadcast .hand-heading .robot-portrait {
+  width: 21px;
+  height: 21px;
+}
+@keyframes roster-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (min-width: 901px) and (max-width: 1150px) {
+  .roster-team {
+    width: 190px;
+  }
+  .roster-team-0 {
+    left: 20px;
+  }
+  .roster-team-1 {
+    right: 20px;
+  }
+  .roster-player {
+    grid-template-columns: 34px minmax(0, 1fr) 36px;
+    gap: 7px;
+  }
+  .roster-avatar {
+    width: 34px;
+  }
+  .roster-name strong {
+    font-size: 14px;
+  }
+  .roster-progress {
+    left: 41px;
+  }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+  .arena-roster {
+    inset: auto 12px calc(180px + env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .roster-team {
+    position: static;
+    width: auto;
+    padding: 0 8px 3px;
+  }
+  .roster-team > header {
+    height: 22px;
+    gap: 6px;
+  }
+  .roster-team > header > span {
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+  .roster-team > header > small {
+    font-size: 9px;
+  }
+  .roster-player {
+    grid-template-columns: 31px minmax(0, 1fr) 30px;
+    gap: 6px;
+    min-height: 49px;
+    padding: 5px 0 7px;
+  }
+  .roster-player::before {
+    inset-inline: -8px;
+  }
+  .roster-avatar {
+    width: 31px;
+    height: 36px;
+  }
+  .roster-name {
+    gap: 4px;
+  }
+  .roster-name strong {
+    font-size: 13px;
+  }
+  .roster-name small {
+    font-size: 9px;
+  }
+  .roster-activity {
+    font-size: 10px;
+    margin-top: 2px;
+  }
+  .roster-count b {
+    font-size: 23px;
+  }
+  .roster-count small {
+    font-size: 9px;
+    margin-top: 2px;
+  }
+  .roster-count .roster-place {
+    font-size: 14px;
+  }
+  .roster-progress {
+    left: 37px;
+  }
+  .match-page.arena-broadcast.match-portrait:not(:has(.arena-settlement)) .immersive-scene {
+    top: calc(162px + env(safe-area-inset-top));
+    bottom: calc(314px + env(safe-area-inset-bottom));
+  }
+  .match-page.arena-broadcast.match-portrait.audio-prompt:not(:has(.arena-settlement))
+    .immersive-scene {
+    top: calc(206px + env(safe-area-inset-top));
+  }
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  .roster-team {
+    bottom: 82px;
+    width: 176px;
+    padding-inline: 8px;
+  }
+  .roster-team-0 {
+    left: 12px;
+  }
+  .roster-team-1 {
+    right: 12px;
+  }
+  .roster-team > header {
+    height: 23px;
+  }
+  .roster-player {
+    grid-template-columns: 30px minmax(0, 1fr) 32px;
+    gap: 6px;
+    min-height: 49px;
+    padding: 5px 0 7px;
+  }
+  .roster-avatar {
+    width: 30px;
+    height: 36px;
+  }
+  .roster-name strong {
+    font-size: 13px;
+  }
+  .roster-count b {
+    font-size: 23px;
+  }
+  .roster-progress {
+    left: 36px;
+  }
+}
+@media (min-width: 701px) and (max-width: 900px) and (min-height: 541px) {
+  .arena-roster {
+    inset: auto 16px 194px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .roster-team {
+    position: static;
+    width: auto;
+  }
+  .roster-team > header {
+    height: 24px;
+  }
+  .roster-player {
+    grid-template-columns: 34px minmax(0, 1fr) 40px;
+    min-height: 49px;
+    padding: 5px 0 7px;
+  }
+  .roster-avatar {
+    width: 34px;
+    height: 36px;
+  }
+  .match-page.arena-broadcast:not(:has(.arena-settlement)) .immersive-scene {
+    top: 100px;
+    bottom: 334px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .roster-thinking {
+    animation: none;
+  }
+  .roster-progress i,
+  .roster-player::before {
+    transition: none;
+  }
+}

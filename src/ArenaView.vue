@@ -2,10 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref, toRaw, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ArenaScene from './ArenaScene.vue';
+import ArenaShow from './ArenaShow.vue';
+import ArenaCeremony from './ArenaCeremony.vue';
+import { actorMood } from './arena-events';
+import { useArenaShow } from './useArenaShow';
+import type { PlayerAnchor } from './arena-projection';
+import ArenaRoster from './ArenaRoster.vue';
+import RobotPortrait from './RobotPortrait.vue';
 import { gameFrame, rankName, cardName, type PublicGame } from '../shared/types';
 import { replaySession } from './replay';
 import { admin, sharePath } from './auth';
 import './arena.css';
+import './arena-readability.css';
 
 const route = useRoute(),
   router = useRouter(),
@@ -132,41 +140,8 @@ function speakEntry(entry: NonNullable<PublicGame['history'][number]>) {
   audioQueue.push(clip);
   if (!playingAudio) void playNextNarration();
 }
-const playerAnchors = ref<{ x: number; y: number }[]>([]);
-function playerLabelStyle(seat: number) {
-  const actualSeat = seat;
-  seat = relativeSeat(seat);
-  const anchor = playerAnchors.value[actualSeat];
-  const compact = viewportWidth.value <= 700;
-  const short = innerHeight <= 540 && viewportWidth.value > innerHeight;
-  if (!anchor || (seat === 0 && cameraMode.value === 'first')) return {};
-  if (cameraMode.value === 'third')
-    return {
-      left: `${Math.max(compact ? 48 : 85, Math.min(viewportWidth.value - (compact ? 48 : 85), anchor.x))}px`,
-      top: `${anchor.y + (compact ? 48 : 34)}px`,
-      right: 'auto',
-      bottom: 'auto',
-      transform: 'translate(-50%, -50%)',
-    };
-  const halfWidth = compact ? 49 : 90;
-  const offset = compact ? 16 : 75;
-  const projectedY =
-    anchor.y +
-    (short ? (seat === 2 ? -55 : 26) : compact ? (seat === 2 ? -70 : 42) : seat === 2 ? -190 : 12);
-  const labelY =
-    compact && seat === 2
-      ? Math.max(166, projectedY)
-      : compact && seat === 0
-        ? Math.min(innerHeight - 230, projectedY)
-        : projectedY;
-  return {
-    left: `${Math.max(halfWidth + 10, Math.min(viewportWidth.value - halfWidth - 10, anchor.x + (seat === 1 ? -offset : seat === 3 ? offset : 0)))}px`,
-    top: `${labelY}px`,
-    right: 'auto',
-    bottom: 'auto',
-    transform: 'translate(-50%, -50%)',
-  };
-}
+const playerAnchors = ref<PlayerAnchor[]>([]);
+const tableAnchor = ref<{ x: number; y: number }>();
 const broadcastMode = computed(() => route.name === 'watch' || route.query.broadcast === '1'),
   portrait = computed(() => route.query.layout === 'portrait' || viewportWidth.value <= 700);
 const spectatorQuery = computed(() => {
@@ -186,8 +161,7 @@ async function shareMatch() {
     notify('可在直播工作台复制观战链接');
   }
 }
-const colors = ['#f2adbd', '#aabef6', '#add8bc', '#f3ce93'],
-  icons = ['✿', '◇', '●', '✦'];
+const colors = ['#f2adbd', '#aabef6', '#add8bc', '#f3ce93'];
 let stream: EventSource,
   clock: ReturnType<typeof setInterval>,
   toastTimer: ReturnType<typeof setTimeout>;
@@ -220,8 +194,14 @@ const view = computed<PublicGame | undefined>(() => {
     nextRoundAt: null,
   };
 });
-const cameraMode = computed<'first' | 'third'>(
-  () => view.value?.presentation?.cameraMode ?? 'first',
+const cameraMode = computed<'first' | 'third'>(() =>
+  ['round-over', 'match-over'].includes(view.value?.status ?? '')
+    ? 'third'
+    : (view.value?.presentation?.cameraMode ?? 'first'),
+);
+const { cue, reducedMotion } = useArenaShow(view);
+const moods = computed(() =>
+  view.value ? view.value.agents.map((_, seat) => actorMood(view.value!, cue.value, seat)) : [],
 );
 const relativeSeat = (seat: number) =>
   (seat - (cameraMode.value === 'third' ? 0 : (view.value?.viewpointSeat ?? 0)) + 4) % 4;
@@ -319,6 +299,7 @@ function openStream() {
   stream?.close();
   stream = new EventSource('/api/events' + spectatorQuery.value);
   stream.onmessage = (e) => {
+    now.value = Date.now();
     state.value = JSON.parse(e.data);
     connected.value = true;
     speech.value = state.value?.presentation?.speech ?? false;
@@ -373,7 +354,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div
-    class="match-page"
+    class="match-page arena-broadcast"
     :class="{
       'clean-broadcast': broadcastMode,
       'match-portrait': portrait,
@@ -402,9 +383,30 @@ onBeforeUnmount(() => {
         :last="view.last"
         :last-seat="view.lastSeat"
         :game-id="view.id"
+        :moods="moods"
+        :reduced-motion="reducedMotion"
+        :settlement="roundOver"
+        :winner-team="view.winner"
         @anchors="playerAnchors = $event"
+        @table-anchor="tableAnchor = $event"
       />
       <div class="room-vignette"></div>
+      <ArenaShow
+        :game="view"
+        :cue="cue"
+        :reduced-motion="reducedMotion"
+        :anchors="playerAnchors"
+        :camera-mode="cameraMode"
+      />
+      <ArenaCeremony
+        :game="view"
+        :now="now"
+        :countdown="countdown"
+        :broadcast="broadcastMode"
+        :pending="pending"
+        :reduced-motion="reducedMotion"
+        @control="action($event)"
+      />
       <div v-if="broadcastMode && speech && !speechReady" class="broadcast-audio-start">
         <button @click="enableBroadcastAudio">
           🔊 {{ audioError ? '重试开启声音' : '点击开启解说声音' }}</button
@@ -455,95 +457,17 @@ onBeforeUnmount(() => {
         </p>
         <p>出完后无人接牌，由对家接风。双下提前结算，未出完两位不强行区分三游和末游。</p>
       </details>
-      <Transition name="rules-event">
-        <section
-          v-if="view.tributeUntil && now < view.tributeUntil"
-          class="tribute-ceremony"
-          aria-live="polite"
-        >
-          <small>第 {{ view.round }} 局 · 打 {{ rankName(view.level) }}</small>
-          <h3>
-            {{
-              view.tributeKind === 'anti'
-                ? '两张大王 · 抗贡成功'
-                : view.tributeKind === 'double'
-                  ? '双下 · 双贡还贡'
-                  : '单贡与还贡'
-            }}
-          </h3>
-          <div v-for="step in view.tributeSteps" :key="step.donor" class="tribute-exchange">
-            <span
-              >{{ view.agents[step.donor].name }}
-              <b :class="{ red: ['H', 'D'].includes(step.offered.suit) }">{{
-                cardName(step.offered)
-              }}</b></span
-            >
-            <em>进贡 →<br />← 还贡</em>
-            <span
-              ><b :class="{ red: ['H', 'D'].includes(step.returned.suit) }">{{
-                cardName(step.returned)
-              }}</b>
-              {{ view.agents[step.receiver].name }}</span
-            >
-          </div>
-          <p v-if="view.tributeKind === 'anti'">进贡方合计持两张大王，免进贡、免还贡。</p>
-          <footer>
-            {{ view.agents[view.turn].name }}先出牌 ·
-            {{ Math.max(0, Math.ceil((view.tributeUntil - now) / 1000)) }} 秒后进入对局
-          </footer>
-        </section>
-        <div v-else-if="view.wind && now - view.wind.at < 4000" class="wind-announcement">
-          ✦ {{ view.agents[view.wind.from].name }}已出完，无人接牌 ·
-          {{ view.agents[view.wind.seat].name }}接风领出
-        </div>
-      </Transition>
       <aside class="match-notice" aria-label="文明观赛声明">
         <strong>禁止赌博</strong>
         <span>AI 掼蛋演示 · 文明观赛</span>
         <small>无下注 · 无现金输赢</small>
       </aside>
-      <div
-        v-for="(agent, i) in view.agents"
-        :key="i"
-        :class="[
-          'player-label',
-          'player-label-' + relativeSeat(i),
-          { active: view.turn === i, finished: view.finished.includes(i) },
-        ]"
-        :style="{ '--player-color': colors[i], ...playerLabelStyle(i) }"
-      >
-        <div class="player-symbol">{{ icons[i] }}</div>
-        <div>
-          <strong
-            >{{ agent.name }}
-            <small>{{
-              relativeSeat(i) === 0
-                ? cameraMode === 'third'
-                  ? '近侧'
-                  : '我们'
-                : relativeSeat(i) === 2
-                  ? '对家搭档'
-                  : relativeSeat(i) === 1
-                    ? '左侧'
-                    : '右侧'
-            }}</small></strong
-          >
-          <p>
-            <span>{{
-              view.finished.includes(i)
-                ? view.finished.length === 4 &&
-                  view.finished[0] % 2 === view.finished[1] % 2 &&
-                  view.counts[i] > 0
-                  ? '双下'
-                  : ['头游', '二游', '三游', '末游'][view.finished.indexOf(i)]
-                : `${view.counts[i]} 张`
-            }}</span
-            ><em v-if="view.thinking === i">思考 <i class="thinking">•••</i></em
-            ><em v-else-if="view.turn === i && !roundOver">轮到出牌</em
-            ><span v-else>{{ i === view.viewpointSeat ? '手牌可见' : '手牌隐藏' }}</span>
-          </p>
-        </div>
-      </div>
+      <ArenaRoster
+        v-if="!roundOver"
+        :game="view"
+        :camera-mode="cameraMode"
+        :reduced-motion="reducedMotion"
+      />
       <div
         v-if="currentEntry && !roundOver"
         class="action-bubble"
@@ -557,70 +481,18 @@ onBeforeUnmount(() => {
         }}</span
         ><small>{{ view.agents[currentEntry.seat].name }}</small>
       </div>
-      <div class="table-status">
+      <div class="table-status" :style="tableAnchor ? { left: tableAnchor.x + 'px', top: tableAnchor.y + 'px' } : {}">
         <span v-if="view.last"
           >{{ view.agents[view.lastSeat].name }} · {{ view.last.label.split(' · ')[0] }}</span
         ><span v-else-if="!roundOver">{{
           view.status === 'ready' ? '等大家准备好' : '新一轮 · 自由领出'
         }}</span>
       </div>
-      <section v-if="roundOver" class="round-result">
-        <span class="result-eyebrow">{{
-          view.status === 'match-over' ? 'MATCH COMPLETE' : 'ROUND COMPLETE'
-        }}</span>
-        <h2>
-          {{ view.agents[view.winner ?? 0].name }} ×
-          {{ view.agents[(view.winner ?? 0) + 2].name }}获胜 <span>✦</span>
-        </h2>
-        <p v-if="view.settlement" class="settlement-explanation">
-          <template v-if="view.settlement.passedA">头游与队友成功过 A，赢得本场比赛。</template>
-          <template v-else-if="view.settlement.failedA"
-            >本局过 A 尝试未成功 · 第 {{ view.settlement.failedA }} 次失败。</template
-          >
-          <template v-else
-            >头游 + {{ ['', '头游', '二游', '三游', '末游'][view.settlement.partnerPlace] }} · 升
-            {{ view.settlement.upgrade }} 级 · {{ rankName(view.settlement.from) }} →
-            {{ rankName(view.settlement.to) }}</template
-          >
-          <strong v-if="view.settlement.demotedTeam !== undefined"
-            >{{ view.agents[view.settlement.demotedTeam].name }}与队友三次过 A 未成功，降回
-            2。</strong
-          >
-        </p>
-        <div class="finish-order">
-          <div v-for="(seat, i) in view.finished" :key="seat">
-            <small>{{
-              i >= 2 && view.finished[0] % 2 === view.finished[1] % 2
-                ? '双下'
-                : ['头游', '二游', '三游', '末游'][i]
-            }}</small
-            ><strong :style="{ color: colors[seat] }">{{ view.agents[seat].name }}</strong>
-          </div>
-        </div>
-        <p v-if="countdown !== null">
-          休息一下，<b>{{ countdown }}</b> 秒后开始下一局
-        </p>
-        <p v-else-if="view.status === 'match-over'">已打过 A，本场比赛结束。</p>
-        <p v-else>自动续局已暂停，可以继续下一局。</p>
-        <button
-          v-if="!broadcastMode && view.status === 'round-over'"
-          class="ghost"
-          :disabled="pending"
-          @click="action(countdown !== null ? 'pause' : 'start')"
-        >
-          {{ countdown !== null ? '暂停连续对局' : '继续下一局 →' }}</button
-        ><button
-          v-if="!broadcastMode && view.status === 'match-over'"
-          class="primary"
-          @click="action('reset')"
-        >
-          重新比赛
-        </button>
-      </section>
       <div class="hand-zone">
         <div class="hand-heading">
           <strong
-            >✿ {{ view.agents[view.viewpointSeat].name }} ·
+            ><RobotPortrait :seat="view.viewpointSeat" />
+            {{ view.agents[view.viewpointSeat].name }} ·
             {{ cameraMode === 'third' ? '观战手牌' : '我们的手牌' }}</strong
           >
           <span class="hand-count">剩余 {{ hand.length }} 张</span>
