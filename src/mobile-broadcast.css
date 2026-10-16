@@ -1,0 +1,1115 @@
+.game-watch {
+  --layer-effect: 1;
+  --layer-trick: 2;
+  --layer-seat: 3;
+  --layer-thought: 4;
+  --layer-hand: 5;
+  --layer-scoreline: 7;
+  --layer-header: 8;
+  --layer-controls: 9;
+  --layer-active-seat: 16;
+  --layer-action-callout: 17;
+  --layer-notice: 24;
+  --layer-ceremony: 40;
+  --felt-ink: #f7f3e8;
+  --felt-muted: #d5dfd4;
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  color: var(--felt-ink);
+  background: #10231b;
+  font-family: 'DM Sans', 'Microsoft YaHei', sans-serif;
+  font-variant-numeric: tabular-nums;
+  isolation: isolate;
+}
+.felt-table,
+.table-rim,
+.table-felt { position: absolute; }
+.felt-table { inset: 0; min-width: 0; }
+.table-rim {
+  inset: max(4px, env(safe-area-inset-top)) 5px max(4px, env(safe-area-inset-bottom));
+  padding: 6px;
+  border: 1px solid #c39a61;
+  border-radius: 27px;
+  background: linear-gradient(145deg, #9d734a, #60462f 58%, #a98051);
+  box-shadow: inset 0 0 0 3px #38291e, 0 8px 28px #050c0866;
+}
+.table-felt {
+  inset: 6px;
+  overflow: hidden;
+  border: 1px solid #559176;
+  border-radius: 20px;
+  background-color: #155c41;
+  background-image: radial-gradient(ellipse at 50% 44%, #26734f 0, #1a6547 49%, #104d37 100%), repeating-linear-gradient(0deg, #ffffff04 0 1px, transparent 1px 3px);
+  box-shadow: inset 0 0 0 3px #0e5139, inset 0 0 0 4px #68a08055;
+}
+.watch-header,
+.watch-brand,
+.watch-tools,
+.match-scoreline,
+.team-score,
+.round-score,
+.player-seat,
+.seat-identity,
+.trick-caption,
+.thought-stream-heading,
+.thought-stream-heading > span,
+.own-hand > header,
+.console-controls,
+.replay-controls {
+  display: flex;
+  align-items: center;
+}
+.watch-header {
+  position: absolute;
+  z-index: var(--layer-header);
+  top: 9px;
+  right: 12px;
+  left: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  height: 34px;
+  gap: 8px;
+  margin: 0;
+}
+.watch-brand { min-width: 0; gap: 8px; }
+.watch-brand > b {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 29px;
+  place-items: center;
+  border: 1px solid #e4ca84;
+  color: #f1d989;
+  font-size: 10px;
+  font-weight: 800;
+}
+.watch-brand > span { display: grid; min-width: 0; gap: 2px; }
+.watch-brand strong { overflow: hidden; color: #fff9e9; font-size: 11px; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.watch-brand small { overflow: hidden; max-width: min(67vw, 540px); color: #c3d5c9; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.watch-tools { flex: 0 0 auto; gap: 7px; }
+.live-indicator { display: inline-flex; align-items: center; gap: 5px; color: #d7e4d8; font-size: 8px; font-weight: 800; }
+.live-indicator i,
+.thought-stream-heading i { width: 6px; height: 6px; border-radius: 50%; background: #c85343; }
+.live-indicator.online i { background: #55c792; box-shadow: 0 0 8px #58d29d; }
+.tool-button,
+.audio-toggle {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid #ffffff55;
+  background: #102d25a8;
+  color: #fff8e7;
+  font-size: 8px;
+}
+.orientation-toggle {
+  display: grid;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid #ffffff55;
+  background: #102d25a8;
+  color: #fff8e7;
+}
+.orientation-toggle.enabled { border-color: #e8cf7e; color: #f3d978; }
+.match-scoreline {
+  position: absolute;
+  z-index: var(--layer-scoreline);
+  top: 48px;
+  right: 10px;
+  left: 10px;
+  justify-content: space-between;
+  min-height: 39px;
+  gap: 5px;
+  padding: 4px 7px;
+  border-block: 1px solid #ffffff35;
+  background: #0d3a2cb8;
+}
+.team-score { flex: 1 1 0; min-width: 0; gap: 5px; }
+.team-score > span { flex: 0 0 auto; color: #c1d1c4; font-size: 8px; }
+.team-score > strong { min-width: 0; overflow: hidden; color: #fff9eb; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.team-score > strong i { color: #d4c18a; font-style: normal; }
+.team-score > b { flex: 0 0 auto; color: #f1d782; font-size: 12px; }
+.team-b { justify-content: flex-end; text-align: right; }
+.round-score { flex: 0 0 auto; flex-direction: column; gap: 1px; padding: 0 8px; border-inline: 1px solid #ffffff3a; text-align: center; }
+.round-score small,
+.round-score span { color: #c6d6ca; font-size: 7px; }
+.round-score strong { color: #f1d782; font-size: 10px; }
+.table-mark { display: none; }
+.player-seat {
+  position: absolute;
+  z-index: var(--layer-seat);
+  gap: 5px;
+  min-width: 0;
+  max-width: 35%;
+  padding: 4px 7px;
+  border: 1px solid #e4ddc9;
+  border-radius: 7px;
+  background: #f8f3e6;
+  color: #27332b;
+  box-shadow: 0 3px 10px #06291e55;
+}
+.player-seat .robot-portrait { flex: 0 0 30px; width: 30px; height: 30px; }
+.player-seat.active { border-color: #f4d76e; box-shadow: 0 0 0 2px #f4d76e99, 0 4px 12px #06291e77; }
+.player-seat.finished { opacity: .56; }
+.player-seat.has-action { z-index: var(--layer-active-seat); }
+.seat-action {
+  position: absolute;
+  z-index: var(--layer-action-callout);
+  display: block;
+  width: max-content;
+  max-width: min(42vw, 180px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff4ce;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.15;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #07160f, 0 0 5px #07160f;
+  box-shadow: none;
+  animation: seat-call-in .18s cubic-bezier(.2,.8,.2,1) both;
+  pointer-events: none;
+}
+.seat-top .seat-action { top: calc(100% + 5px); left: 50%; transform: translateX(-50%); }
+.seat-left .seat-action { top: 50%; left: calc(100% + 5px); transform: translateY(-50%); }
+.seat-right .seat-action { top: 50%; right: calc(100% + 5px); transform: translateY(-50%); }
+.seat-bottom .seat-action { bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%); }
+.seat-top { top: 97px; left: 50%; transform: translateX(-50%); }
+.seat-left { top: 41%; left: 9px; }
+.seat-right { top: 41%; right: 9px; flex-direction: row-reverse; text-align: right; }
+.seat-bottom { bottom: 142px; left: 50%; transform: translateX(-50%); }
+.seat-identity { display: grid; min-width: 0; gap: 2px; align-items: start; }
+.seat-name-line { display: flex; align-items: baseline; gap: 3px; min-width: 0; }
+.seat-name-line > strong { flex: 0 1 auto; min-width: 0; max-width: 94px; overflow: hidden; color: #25342b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.seat-rank { flex: 0 0 auto; color: #96752e; font-size: 8px; font-style: normal; font-weight: 850; white-space: nowrap; }
+.seat-identity small { color: #748077; font-size: 7px; white-space: nowrap; }
+.seat-card-count { display: grid; flex: 0 0 21px; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: #29483b; color: #fff; font-size: 9px; }
+.seat-top .seat-card-count { background: #ad4c3d; }
+.hidden-cards { display: flex; align-items: center; height: 19px; padding-left: 2px; }
+.hidden-cards i { flex: 0 0 9px; width: 9px; height: 15px; margin-left: -4px; border: 1px solid #e2d2a9; border-radius: 2px; background: #345776; box-shadow: inset 0 0 0 1px #597799; }
+.trick-table {
+  position: absolute;
+  z-index: var(--layer-trick);
+  top: 41%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  width: min(68%, 510px);
+  min-height: 105px;
+  padding: 4px 8px;
+  transform: translate(-50%, -50%);
+  color: #f7f3e8;
+  text-align: center;
+}
+.trick-caption { justify-content: center; gap: 6px; color: #c7dccb; font-size: 8px; }
+.trick-caption small { color: #f2d574; font-size: 7px; }
+.lead-play { position: relative; z-index: 1; display: grid; justify-items: center; gap: 3px; min-width: 0; }
+.lead-cards { display: flex; justify-content: center; min-height: 48px; padding-left: 8px; --flight-x: 0px; --flight-y: 0px; }
+.lead-cards.from-top { --flight-y: -27dvh; }
+.lead-cards.from-bottom { --flight-y: 34dvh; }
+.lead-cards.from-left { --flight-x: -42vw; }
+.lead-cards.from-right { --flight-x: 42vw; }
+.played-card {
+  position: relative;
+  display: grid;
+  flex: 0 0 34px;
+  align-content: start;
+  justify-items: start;
+  width: 34px;
+  height: 47px;
+  margin-left: -8px;
+  padding: 4px 3px;
+  border: 1px solid color-mix(in srgb, var(--actor-color, #cbbd9b) 55%, #ded8c7);
+  border-radius: 4px;
+  background: #fffdf5;
+  color: #28322b;
+  text-align: left;
+  box-shadow: 0 2px 5px #09271f77;
+  animation: none;
+}
+.played-card.red { color: #c1433f; }
+.played-card.wild { outline: 2px solid #e9c34d; }
+.played-card b { font-size: 12px; line-height: 1; }
+.played-card small { font-size: 8px; line-height: 1; }
+.pass-stamps { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 100%; max-height: 56px; overflow: hidden; }
+.pass-stamps span { display: inline-flex; flex: 0 1 calc(50% - 2px); align-items: center; justify-content: center; max-width: calc(50% - 2px); overflow: hidden; padding: 0; color: #fff2c7; font-size: 10px; font-weight: 750; text-overflow: ellipsis; text-shadow: 0 1px 3px #07160f; white-space: nowrap; }
+.pass-stamps span.forced { color: #ffe1c3; }
+.trick-empty { margin: 13px 0 0; color: #dbe8da; font-size: 9px; }
+.live-thought-stream {
+  position: absolute;
+  z-index: var(--layer-thought);
+  right: 2%;
+  bottom: 22%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  width: min(32%, 460px);
+  max-height: 30%;
+  pointer-events: none;
+}
+.thought-stream-heading { justify-content: space-between; gap: 8px; min-width: 0; margin: 0; padding: 0 2px; color: #f5eedb; text-shadow: 0 1px 3px #071c14; }
+.thought-stream-heading > strong { font-size: 11px; }
+.thought-stream-heading > span { gap: 5px; color: #cfe6d3; font-size: 9px; font-weight: 800; }
+.thought-stream-heading i { display: inline-block; background: #58c995; box-shadow: 0 0 7px #58d29d; }
+.thought-stream-window { display: flex; min-height: 0; overflow: hidden; flex-direction: column; justify-content: flex-end; }
+.thought-stream-list { position: relative; display: flex; flex-direction: column; gap: 5px; }
+.thought-event { min-width: 0; padding: 7px 9px; border: 1px solid #ffffff2d; border-left: 3px solid var(--seat-color); border-radius: 4px; background: #0a3026d9; color: #f5f0e1; box-shadow: 0 3px 10px #061a1440; }
+.thought-event > header { display: flex; align-items: baseline; gap: 6px; min-width: 0; margin: 0 0 3px; }
+.thought-event > header strong { flex: 0 0 auto; color: #f5d879; font-size: 11px; }
+.thought-event > header em { flex: 0 0 auto; color: #bed3c2; font-size: 9px; font-style: normal; }
+.thought-event > header span { min-width: 0; overflow: hidden; color: #fff8e8; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.thought-event > header small { flex: 0 0 auto; margin-left: auto; color: #b9cdbd; font-size: 9px; white-space: nowrap; }
+.thought-event > p { display: -webkit-box; overflow: hidden; margin: 0; color: #dce8dc; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.thought-event > .thought-event-read { margin-top: 3px; padding-top: 3px; border-top: 1px solid #ffffff24; color: #f0dfa9; }
+.thought-event-read b { color: #f5d879; font-weight: 700; }
+.thought-scroll-enter-active,
+.thought-scroll-leave-active,
+.thought-scroll-move { transition: opacity .28s ease, transform .28s ease; }
+.thought-scroll-enter-from { opacity: 0; transform: translateY(12px); }
+.thought-scroll-leave-to { opacity: 0; transform: translateY(-10px); }
+.thought-scroll-leave-active { position: absolute; right: 0; left: 0; }
+.own-hand {
+  position: absolute;
+  z-index: var(--layer-hand);
+  right: 9px;
+  bottom: 7px;
+  left: 9px;
+  height: 125px;
+  padding: 0;
+  color: #fff9e9;
+  background: linear-gradient(0deg, #0c3829a6, #0c382900 90%);
+}
+.own-hand > header { justify-content: space-between; gap: 8px; height: 25px; margin: 0; padding: 0 3px; }
+.own-hand > header div { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.own-hand > header small { color: #c6d7c8; font-size: 7px; }
+.own-hand > header strong { overflow: hidden; color: #fff7e5; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.own-hand > header > span { flex: 0 0 auto; margin-left: auto; color: #e8e0c7; font-size: 8px; white-space: nowrap; }
+.own-hand > header > span i { color: #d8c77e; font-style: normal; }
+.hand-cards { position: relative; height: 87px; margin-top: 1px; overflow: visible; }
+.hand-card {
+  position: absolute;
+  top: 0;
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  width: 39px;
+  height: 58px;
+  padding: 4px 3px;
+  border: 1px solid #d8d4c8;
+  border-radius: 4px 4px 2px 2px;
+  background: #fffdf6;
+  color: #27332c;
+  box-shadow: -1px 1px 4px #061c1666;
+}
+.hand-card.red { color: #c3423e; }
+.hand-card.wild { border-color: #e2bf51; background: #fff5ce; }
+.hand-card b { font-size: 12px; line-height: 1; }
+.hand-card small { font-size: 9px; line-height: 1; }
+.hand-card > i { position: absolute; top: 2px; right: 2px; color: #977315; font-size: 6px; font-style: normal; }
+.hand-cards > p { display: grid; height: 55px; margin: 0; place-items: center; color: #e4e8d9; font-size: 9px; }
+.console-controls {
+  position: absolute;
+  z-index: var(--layer-controls);
+  right: 12px;
+  bottom: 138px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 190px;
+}
+.console-controls button { min-height: 28px; padding: 0 8px; border: 1px solid #ffffff63; background: #0b3428e8; color: #fff8e7; font-size: 8px; }
+.console-controls .control-primary { border-color: #d7b54c; background: #c8a440; color: #1a2a20; }
+.console-controls button:disabled { opacity: .48; }
+.replay-controls { flex-wrap: wrap; justify-content: flex-end; gap: 5px; color: #e9e1c8; font-size: 7px; }
+.replay-controls button { flex: 0 0 auto; }
+.replay-controls input { flex: 1 1 100%; min-width: 110px; accent-color: #e1bf55; }
+.table-notice { position: absolute; z-index: var(--layer-notice); top: 96px; left: 50%; width: max-content; max-width: calc(100% - 36px); margin: 0; padding: 8px 11px; transform: translateX(-50%); border: 1px solid #d9b65a; background: #263e31; color: #f5f0df; font-size: 9px; box-shadow: 0 5px 20px #101a1435; }
+.game-watch .round-result.arena-settlement {
+  position: absolute;
+  left: 50%;
+  z-index: var(--layer-ceremony);
+  pointer-events: auto;
+}
+.game-watch .arena-tribute {
+  position: absolute;
+  left: 50%;
+  z-index: var(--layer-ceremony);
+  max-height: min(calc(100% - 16px), calc(100dvh - 16px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.special-impact {
+  position: absolute;
+  z-index: var(--layer-effect);
+  top: 54%;
+  left: 50%;
+  width: clamp(96px, 28vw, 196px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  --source-x: 0%;
+  --source-y: 0%;
+}
+.special-impact::before,
+.special-impact::after { position: absolute; inset: 8%; border-radius: 50%; opacity: 0; content: ''; }
+.special-impact::before {
+  background: radial-gradient(circle, #fff6d6 0 4%, color-mix(in srgb, var(--actor-color) 80%, white) 5% 10%, transparent 13%), repeating-conic-gradient(from 8deg, color-mix(in srgb, var(--actor-color) 80%, #ffd56e) 0 4deg, transparent 4deg 24deg);
+  filter: drop-shadow(0 0 9px color-mix(in srgb, var(--actor-color) 75%, transparent));
+  animation: impact-burst .78s cubic-bezier(.12,.72,.2,1) both;
+}
+.special-impact::after {
+  border: 2px solid color-mix(in srgb, var(--actor-color) 84%, white);
+  box-shadow: 0 0 13px color-mix(in srgb, var(--actor-color) 70%, transparent), inset 0 0 13px color-mix(in srgb, var(--actor-color) 42%, transparent);
+  animation: impact-ring .78s cubic-bezier(.12,.72,.2,1) both;
+}
+.special-impact.from-top { --source-y: -38%; }
+.special-impact.from-bottom { --source-y: 38%; }
+.special-impact.from-left { --source-x: -38%; }
+.special-impact.from-right { --source-x: 38%; }
+.special-impact.impact-kings::before { filter: hue-rotate(18deg) drop-shadow(0 0 12px #f4d879); }
+.special-impact.impact-flush::before,
+.special-impact.impact-plate::before {
+  inset: 39% -18%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--actor-color) 84%, white), transparent);
+  filter: drop-shadow(0 0 8px var(--actor-color));
+  animation-name: impact-sweep;
+}
+.special-impact.impact-plate::before { transform: rotate(-12deg); }
+@keyframes card-land { from { opacity: .35; transform: translateY(-9px); } to { opacity: 1; } }
+@keyframes card-flight {
+  0% { opacity: 0; transform: translate(var(--flight-x), var(--flight-y)) scale(.55) rotate(-9deg); }
+  72% { opacity: 1; transform: translate(0, 0) scale(1.08) rotate(1deg); }
+  100% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); }
+}
+@keyframes seat-call-in {
+  from { opacity: 0; filter: brightness(1.8); }
+  to { opacity: 1; filter: brightness(1); }
+}
+@keyframes impact-burst {
+  0% { opacity: 0; transform: translate(var(--source-x), var(--source-y)) scale(.14) rotate(-18deg); }
+  18% { opacity: 1; }
+  62% { opacity: .9; transform: translate(0, 0) scale(1.02) rotate(3deg); }
+  100% { opacity: 0; transform: translate(0, 0) scale(1.22) rotate(10deg); }
+}
+@keyframes impact-ring {
+  0% { opacity: 0; transform: translate(var(--source-x), var(--source-y)) scale(.2); }
+  18% { opacity: .92; }
+  100% { opacity: 0; transform: translate(0, 0) scale(1.32); }
+}
+@keyframes impact-sweep {
+  0% { opacity: 0; transform: translate(var(--source-x), var(--source-y)) scaleX(.08); }
+  20% { opacity: .9; }
+  100% { opacity: 0; transform: translate(0, 0) scaleX(1.15); }
+}
+.lead-cards.flight-active .played-card {
+  animation: card-flight .48s cubic-bezier(.18,.72,.24,1) both;
+  animation-delay: calc(var(--card-index, 0) * 32ms);
+}
+
+@media (min-width: 520px) and (orientation: portrait) {
+  .watch-brand strong { font-size: 13px; }
+  .watch-brand small { font-size: 9px; }
+  .match-scoreline { top: 52px; min-height: 46px; }
+  .seat-top { top: 108px; }
+  .player-seat { gap: 7px; padding: 5px 8px; }
+  .player-seat .robot-portrait { width: 38px; height: 38px; flex-basis: 38px; }
+  .seat-identity strong { max-width: 125px; font-size: 10px; }
+  .seat-identity small { font-size: 8px; }
+  .seat-left .seat-identity small,
+  .seat-right .seat-identity small { display: block; }
+  .seat-bottom { bottom: 153px; }
+  .own-hand { height: 139px; }
+  .own-hand > header { height: 28px; }
+  .hand-cards { height: 98px; }
+  .hand-card { width: 44px; height: 65px; }
+  .hand-card b { font-size: 14px; }
+  .live-thought-stream { width: min(38%, 520px); max-height: 28%; }
+  .thought-event > p { font-size: 11px; }
+}
+
+@media (max-width: 519px) and (orientation: portrait) {
+  .table-rim { inset-inline: 3px; padding: 4px; border-radius: 23px; }
+  .table-felt { inset: 4px; border-radius: 18px; }
+  .watch-header { right: 9px; left: 9px; }
+  .watch-brand { gap: 6px; }
+  .watch-brand > b { flex-basis: 30px; width: 30px; height: 26px; font-size: 9px; }
+  .watch-brand strong { font-size: 11px; }
+  .watch-brand small { max-width: 60vw; font-size: 8px; }
+  .watch-tools { gap: 4px; }
+  .live-indicator { font-size: 8px; }
+  .tool-button,
+  .audio-toggle { font-size: 9px; }
+  .match-scoreline { top: 46px; right: 7px; left: 7px; min-height: 37px; gap: 3px; padding: 3px 5px; }
+  .team-score { gap: 3px; }
+  .team-score > span { font-size: 8px; }
+  .team-score > strong { font-size: 9px; }
+  .team-score > b { font-size: 11px; }
+  .round-score { padding-inline: 5px; }
+  .round-score small,
+  .round-score span { font-size: 7px; }
+  .round-score strong { font-size: 9px; }
+  .seat-top { top: 91px; }
+  .player-seat { gap: 3px; max-width: 44%; padding: 3px 5px; }
+  .player-seat .robot-portrait { width: 25px; height: 25px; flex-basis: 25px; }
+  .seat-identity strong { max-width: 66px; font-size: 8px; }
+  .seat-identity small { font-size: 7px; }
+  .seat-left,
+  .seat-right { display: grid; grid-template-columns: minmax(0, 1fr); justify-items: center; align-content: center; gap: 1px; width: 48px; max-width: none; padding: 3px 2px; text-align: center; }
+  .seat-left .seat-identity,
+  .seat-right .seat-identity { justify-items: center; }
+  .seat-left .seat-name-line,
+  .seat-right .seat-name-line { width: 100%; justify-content: center; gap: 1px; }
+  .seat-left .seat-name-line > strong,
+  .seat-right .seat-name-line > strong { max-width: calc(100% - 17px); font-size: 8px; }
+  .seat-left .seat-rank,
+  .seat-right .seat-rank { font-size: 7px; }
+  .seat-left .seat-identity small,
+  .seat-right .seat-identity small { display: none; }
+  .seat-left .robot-portrait,
+  .seat-right .robot-portrait { width: 22px; height: 22px; flex-basis: 22px; }
+  .seat-left .seat-card-count,
+  .seat-right .seat-card-count { position: absolute; top: -5px; right: -5px; width: 17px; height: 17px; flex-basis: 17px; font-size: 8px; }
+  .hidden-cards { display: none; }
+  .seat-left { top: 40%; left: 4px; }
+  .seat-right { top: 40%; right: 4px; }
+  .seat-bottom { bottom: 137px; }
+  .seat-bottom .seat-identity small { display: none; }
+  .seat-bottom .seat-card-count { width: 18px; height: 18px; flex-basis: 18px; font-size: 8px; }
+  .trick-table { top: 41%; width: 72%; min-height: 98px; }
+  .lead-cards { min-height: 42px; }
+  .played-card { flex-basis: 30px; width: 30px; height: 42px; padding: 3px; }
+  .played-card b { font-size: 11px; }
+  .live-thought-stream { top: 52%; right: 5%; bottom: 22%; width: 44%; max-height: none; gap: 4px; }
+  .thought-stream-heading > strong { font-size: 10px; }
+  .thought-stream-heading > span { font-size: 8px; }
+  .thought-stream-list { gap: 4px; }
+  .thought-event { padding: 6px 7px; }
+  .thought-event > header { gap: 4px; margin-bottom: 2px; }
+  .thought-event > header strong { font-size: 10px; }
+  .thought-event > header em { font-size: 8px; }
+  .thought-event > header span { font-size: 10px; }
+  .thought-event > header small { display: none; }
+  .thought-event > p { font-size: 11px; line-height: 1.3; -webkit-line-clamp: 2; }
+  .thought-event > .thought-event-read { margin-top: 2px; padding-top: 2px; font-size: 9px; }
+  .own-hand { right: 6px; bottom: 6px; left: 6px; height: 121px; }
+  .own-hand > header { height: 23px; }
+  .hand-cards { height: 84px; }
+  .hand-card { width: 35px; height: 54px; padding: 4px 2px; }
+  .hand-card b { font-size: 11px; }
+  .hand-card small { font-size: 8px; }
+  .console-controls { right: 7px; bottom: 130px; max-width: 170px; }
+  .table-notice { top: 90px; }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .table-rim { inset: 4px 6px; padding: 4px; border-radius: 22px; }
+  .table-felt { inset: 4px; border-radius: 17px; }
+  .watch-header { top: 5px; right: 9px; left: 9px; height: 31px; }
+  .watch-brand > b { flex-basis: 29px; width: 29px; height: 24px; }
+  .watch-brand strong { font-size: 10px; }
+  .watch-brand small { max-width: 52vw; font-size: 7px; }
+  .match-scoreline { top: 39px; right: 8px; left: 8px; min-height: 32px; padding: 2px 6px; }
+  .team-score > strong { font-size: 8px; }
+  .round-score small,
+  .round-score span { font-size: 6px; }
+  .round-score strong { font-size: 8px; }
+  .seat-top { top: 78px; }
+  .player-seat { gap: 4px; padding: 3px 5px; }
+  .player-seat .robot-portrait { width: 25px; height: 25px; flex-basis: 25px; }
+  .seat-identity strong { max-width: 75px; font-size: 8px; }
+  .seat-identity small { font-size: 6px; }
+  .seat-left,
+  .seat-right { top: 43%; }
+  .seat-bottom { display: flex; bottom: 96px; gap: 3px; padding: 2px 5px; }
+  .seat-bottom .robot-portrait { width: 22px; height: 22px; flex-basis: 22px; }
+  .seat-bottom .seat-identity strong { max-width: 72px; font-size: 8px; }
+  .seat-bottom .seat-card-count { width: 18px; height: 18px; flex-basis: 18px; font-size: 8px; }
+  .trick-table { top: 39%; width: min(64%, 430px); min-height: 78px; padding: 2px 5px; }
+  .lead-cards { min-height: 35px; }
+  .played-card { flex-basis: 25px; width: 25px; height: 35px; padding: 2px; }
+  .played-card b { font-size: 9px; }
+  .played-card small { font-size: 6px; }
+  .seat-left,
+  .seat-right { top: 39%; }
+  .live-thought-stream { top: 49%; right: 2%; bottom: 24%; width: 32%; max-height: none; gap: 3px; }
+  .thought-stream-heading > strong { font-size: 10px; }
+  .thought-stream-heading > span { font-size: 8px; }
+  .thought-stream-list { gap: 4px; }
+  .thought-event { padding: 5px 7px; }
+  .thought-event:nth-child(-n+1) { display: none; }
+  .thought-event > header { gap: 4px; }
+  .thought-event > header strong { font-size: 10px; }
+  .thought-event > header em { font-size: 8px; }
+  .thought-event > header span { font-size: 9px; }
+  .thought-event > header small { display: none; }
+  .thought-event > p { font-size: 10px; line-height: 1.2; -webkit-line-clamp: 1; }
+  .thought-event > .thought-event-read { font-size: 9px; -webkit-line-clamp: 1; }
+  .own-hand { right: 9px; bottom: 5px; left: 9px; height: 85px; }
+  .own-hand > header { height: 18px; }
+  .own-hand > header small { font-size: 6px; }
+  .own-hand > header strong { font-size: 8px; }
+  .own-hand > header > span { font-size: 7px; }
+  .hand-cards { height: 61px; margin-top: 1px; }
+  .hand-card { width: 29px; height: 43px; padding: 3px 2px; }
+  .hand-card b { font-size: 9px; }
+  .hand-card small { font-size: 6px; }
+  .console-controls { right: 8px; bottom: 90px; max-width: 160px; }
+  .console-controls button { min-height: 24px; padding-inline: 6px; font-size: 7px; }
+  .table-notice { top: 76px; }
+}
+
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 621px) {
+  .table-rim { inset: 12px; padding: 8px; border-radius: 34px; }
+  .table-felt { inset: 8px; border-radius: 27px; }
+  .watch-header { top: 14px; right: 20px; left: 20px; height: 40px; }
+  .watch-brand > b { flex-basis: 40px; width: 40px; height: 34px; font-size: 12px; }
+  .watch-brand strong { font-size: 14px; }
+  .watch-brand small { font-size: 10px; }
+  .match-scoreline { top: 62px; right: 18px; left: 18px; min-height: 48px; }
+  .team-score > strong { font-size: 11px; }
+  .team-score > span { font-size: 9px; }
+  .round-score small,
+  .round-score span { font-size: 8px; }
+  .round-score strong { font-size: 12px; }
+  .seat-top { top: 121px; }
+  .player-seat { gap: 8px; padding: 6px 10px; }
+  .player-seat .robot-portrait { width: 44px; height: 44px; flex-basis: 44px; }
+  .seat-identity strong { max-width: 145px; font-size: 11px; }
+  .seat-identity small { font-size: 9px; }
+  .seat-left,
+  .seat-right { top: 40%; }
+  .seat-bottom { bottom: 171px; }
+  .trick-table { top: 41%; min-height: 156px; }
+  .played-card { flex-basis: 40px; width: 40px; height: 56px; }
+  .played-card b { font-size: 14px; }
+  .played-card small { font-size: 10px; }
+  .live-thought-stream { width: min(32%, 460px); max-height: 30%; }
+  .thought-stream-heading > strong { font-size: 13px; }
+  .thought-stream-heading > span { font-size: 10px; }
+  .thought-event { padding: 9px 11px; }
+  .thought-event > header strong { font-size: 13px; }
+  .thought-event > header em { font-size: 10px; }
+  .thought-event > header span { font-size: 12px; }
+  .thought-event > header small { font-size: 10px; }
+  .thought-event > p { font-size: 12px; }
+  .own-hand { right: 17px; bottom: 10px; left: 17px; height: 151px; }
+  .own-hand > header { height: 29px; }
+  .own-hand > header small { font-size: 9px; }
+  .own-hand > header strong { font-size: 11px; }
+  .own-hand > header > span { font-size: 10px; }
+  .hand-cards { height: 112px; }
+  .hand-card { width: 49px; height: 73px; padding: 5px; }
+  .hand-card b { font-size: 15px; }
+  .hand-card small { font-size: 11px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thought-scroll-enter-active,
+  .thought-scroll-leave-active,
+  .thought-scroll-move,
+  .played-card { animation: none; }
+  .thought-scroll-enter-active,
+  .thought-scroll-leave-active,
+  .thought-scroll-move { transition: none; }
+}
+
+.game-watch.match-page {
+  min-height: 0;
+  background: #10231b;
+}
+.watch-brand strong { font-size: 13px; }
+.watch-brand small { font-size: 10px; }
+.live-indicator { font-size: 10px; }
+.tool-button,
+.audio-toggle { min-height: 32px; padding-inline: 10px; font-size: 10px; }
+.audio-toggle.enabled { border-color: #e8ce74; color: #f7dd83; }
+.team-score > span { font-size: 10px; }
+.team-score > strong { font-size: 11px; }
+.round-score small,
+.round-score span { font-size: 9px; }
+.round-score strong { font-size: 12px; }
+.seat-identity strong { font-size: 11px; }
+.seat-identity small { font-size: 9px; }
+.seat-card-count { font-size: 10px; }
+.trick-caption { font-size: 10px; }
+.trick-caption small { font-size: 9px; }
+.played-card b { font-size: 13px; }
+.played-card small { font-size: 9px; }
+.pass-stamps span { font-size: 10px; }
+.own-hand > header small { font-size: 9px; }
+.own-hand > header strong { font-size: 11px; }
+.own-hand > header > span { font-size: 10px; }
+.hand-card b { font-size: 13px; }
+.hand-card small { font-size: 9px; }
+.thought-stream-heading > strong { font-size: 12px; }
+.thought-stream-heading > span { font-size: 10px; }
+.thought-event > header strong { font-size: 12px; }
+.thought-event > header em,
+.thought-event > header small { font-size: 10px; }
+.thought-event > header span { font-size: 11px; }
+.thought-event > p { font-size: 12px; line-height: 1.38; }
+.thought-event-read b { font-size: 11px; }
+@media (max-width: 519px) and (orientation: portrait) {
+  .watch-brand { gap: 7px; }
+  .watch-brand > b { flex-basis: 33px; width: 33px; height: 29px; font-size: 10px; }
+  .watch-brand strong { font-size: 13px; }
+  .watch-brand small { max-width: 46vw; font-size: 9px; }
+  .watch-tools { gap: 5px; }
+  .live-indicator { font-size: 9px; }
+  .audio-toggle { min-height: 32px; padding-inline: 8px; font-size: 10px; }
+  .match-scoreline { top: 49px; min-height: 42px; padding-block: 4px; }
+  .team-score > span { font-size: 9px; }
+  .team-score > strong { font-size: 10px; }
+  .team-score > b { font-size: 12px; }
+  .round-score { padding-inline: 6px; }
+  .round-score small,
+  .round-score span { font-size: 8px; }
+  .round-score strong { font-size: 11px; }
+  .seat-top { top: 99px; }
+  .player-seat { gap: 4px; padding: 4px 6px; }
+  .player-seat .robot-portrait { width: 28px; height: 28px; flex-basis: 28px; }
+  .seat-identity strong { max-width: 76px; font-size: 10px; }
+  .seat-identity small { font-size: 8px; }
+  .seat-left,
+  .seat-right { width: 54px; padding: 4px 3px; }
+  .seat-left .robot-portrait,
+  .seat-right .robot-portrait { width: 24px; height: 24px; flex-basis: 24px; }
+  .seat-left .seat-identity strong,
+  .seat-right .seat-identity strong { max-width: 49px; font-size: 9px; }
+  .seat-left .seat-card-count,
+  .seat-right .seat-card-count { width: 19px; height: 19px; flex-basis: 19px; font-size: 9px; }
+  .seat-left { left: 6px; }
+  .seat-right { right: 6px; }
+  .seat-bottom { bottom: 137px; }
+  .trick-table { top: 41%; width: 73%; }
+  .played-card { flex-basis: 33px; width: 33px; height: 46px; }
+  .played-card b { font-size: 13px; }
+  .pass-stamps span { font-size: 10px; }
+  .live-thought-stream { top: 51%; right: 4%; bottom: 22%; width: 48%; max-height: 27%; gap: 5px; }
+  .thought-stream-heading > strong { font-size: 12px; }
+  .thought-event { padding: 7px 8px; }
+  .thought-event > header { gap: 5px; }
+  .thought-event > header strong { font-size: 11px; }
+  .thought-event > header em { font-size: 9px; }
+  .thought-event > header span { font-size: 10px; }
+  .thought-event > header small { display: none; }
+  .thought-event > p { font-size: 12px; line-height: 1.35; -webkit-line-clamp: 2; }
+  .thought-event > .thought-event-read { font-size: 11px; }
+  .own-hand { right: 6px; bottom: 6px; left: 6px; height: 128px; }
+  .own-hand > header { height: 25px; }
+  .own-hand > header small { font-size: 9px; }
+  .own-hand > header strong { font-size: 11px; }
+  .own-hand > header > span { font-size: 9px; }
+  .hand-cards { height: 92px; }
+  .hand-card { width: 36px; height: 58px; padding: 4px 3px; }
+  .hand-card b { font-size: 13px; }
+  .hand-card small { font-size: 9px; }
+  .console-controls { right: 7px; bottom: 136px; max-width: 190px; }
+  .console-controls button { min-height: 32px; font-size: 10px; }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .lead-cards.from-top { --flight-y: -18dvh; }
+  .lead-cards.from-bottom { --flight-y: 28dvh; }
+  .watch-brand strong { font-size: 12px; }
+  .watch-brand small { font-size: 9px; }
+  .live-indicator { font-size: 9px; }
+  .audio-toggle,
+  .tool-button { min-height: 30px; font-size: 10px; }
+  .match-scoreline { min-height: 36px; }
+  .team-score > strong { font-size: 10px; }
+  .team-score > span { font-size: 9px; }
+  .round-score small,
+  .round-score span { font-size: 8px; }
+  .round-score strong { font-size: 10px; }
+  .seat-top { top: 82px; }
+  .seat-identity strong { font-size: 10px; }
+  .seat-identity small { font-size: 8px; }
+  .seat-left,
+  .seat-right { top: 39%; }
+  .trick-table { top: 39%; min-height: 86px; }
+  .trick-caption { font-size: 9px; }
+  .played-card { flex-basis: 28px; width: 28px; height: 40px; }
+  .played-card b { font-size: 11px; }
+  .played-card small { font-size: 8px; }
+  .live-thought-stream { top: 49%; right: 2%; bottom: 24%; width: 37%; max-height: 35%; gap: 3px; }
+  .thought-stream-heading > strong { font-size: 11px; }
+  .thought-stream-heading > span { font-size: 9px; }
+  .thought-event { padding: 6px 8px; }
+  .thought-event > header strong { font-size: 11px; }
+  .thought-event > header em { font-size: 9px; }
+  .thought-event > header span { font-size: 10px; }
+  .thought-event > p { font-size: 11px; line-height: 1.25; -webkit-line-clamp: 2; }
+  .thought-event > .thought-event-read { font-size: 10px; }
+  .own-hand { height: 91px; }
+  .own-hand > header { height: 20px; }
+  .own-hand > header small { font-size: 8px; }
+  .own-hand > header strong { font-size: 10px; }
+  .own-hand > header > span { font-size: 8px; }
+  .hand-cards { height: 67px; }
+  .hand-card { width: 31px; height: 48px; }
+  .hand-card b { font-size: 11px; }
+  .hand-card small { font-size: 8px; }
+  .console-controls { bottom: 95px; }
+  .console-controls button { min-height: 28px; font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-action,
+  .special-impact::before,
+  .special-impact::after,
+  .lead-cards.flight-active .played-card { animation: none; transition: none; }
+}
+
+@media (max-width: 519px) and (orientation: portrait) {
+  .watch-brand strong { font-size: 13px; }
+  .watch-brand small { font-size: 10px; }
+  .live-indicator,
+  .audio-toggle { font-size: 10px; }
+  .team-score > span { font-size: 10px; }
+  .team-score > strong { font-size: 11px; }
+  .round-score small,
+  .round-score span { font-size: 9px; }
+  .round-score strong { font-size: 12px; }
+  .seat-identity strong,
+  .seat-left .seat-identity strong,
+  .seat-right .seat-identity strong { font-size: 10px; }
+  .seat-card-count,
+  .seat-left .seat-card-count,
+  .seat-right .seat-card-count { font-size: 9px; }
+  .trick-caption { font-size: 9px; }
+  .pass-stamps span { font-size: 10px; }
+  .thought-stream-heading > strong { font-size: 13px; }
+  .thought-stream-heading > span { font-size: 10px; }
+  .thought-event > header strong { font-size: 11px; }
+  .thought-event > header em,
+  .thought-event > header span { font-size: 10px; }
+  .thought-event > p { font-size: 12px; line-height: 1.35; }
+  .thought-event > .thought-event-read { font-size: 11px; line-height: 1.3; }
+  .own-hand > header small,
+  .own-hand > header > span { font-size: 10px; }
+  .own-hand > header strong { font-size: 12px; }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .watch-brand strong { font-size: 12px; }
+  .watch-brand small { font-size: 9px; }
+  .live-indicator,
+  .audio-toggle,
+  .tool-button { font-size: 9px; }
+  .team-score > span,
+  .team-score > strong { font-size: 9px; }
+  .round-score small,
+  .round-score span { font-size: 8px; }
+  .round-score strong { font-size: 10px; }
+  .seat-identity strong { font-size: 10px; }
+  .seat-identity small { font-size: 8px; }
+  .trick-caption { font-size: 9px; }
+  .played-card b { font-size: 10px; }
+  .played-card small { font-size: 8px; }
+  .thought-stream-heading > strong { font-size: 11px; }
+  .thought-stream-heading > span,
+  .thought-event > header strong,
+  .thought-event > header span { font-size: 9px; }
+  .thought-event > header em { font-size: 8px; }
+  .thought-event > p { font-size: 10px; line-height: 1.3; }
+  .thought-event > .thought-event-read { font-size: 9px; line-height: 1.25; }
+  .own-hand > header small,
+  .own-hand > header > span { font-size: 9px; }
+  .own-hand > header strong { font-size: 10px; }
+  .hand-card b { font-size: 10px; }
+  .hand-card small { font-size: 8px; }
+}
+
+@media (orientation: landscape) and (max-height: 600px) and (max-width: 700px) {
+  .game-watch .round-result.arena-settlement {
+    bottom: 8px;
+    width: min(700px, calc(100% - 16px));
+    max-height: calc(100% - 16px);
+    padding: 10px 12px;
+    column-gap: 10px;
+  }
+  .game-watch .round-result.arena-settlement h2 {
+    margin: 4px 0;
+    font-size: 18px;
+  }
+  .arena-settlement .upgrade-ranks > strong { font-size: 30px; }
+  .arena-settlement .finish-order { gap: 6px; margin-top: 8px; padding: 6px 0; }
+  .arena-settlement .settlement-next { margin-top: 6px; padding-top: 6px; font-size: 10px; }
+  .arena-settlement .next-round-clock { width: 28px; height: 28px; font-size: 16px; }
+  .game-watch .arena-tribute { top: 50%; padding: 12px; }
+  .game-watch .arena-tribute h3 { margin: 8px 0 10px; font-size: 20px; }
+}
+
+.game-watch.match-page .watch-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 1.3fr) minmax(0, 1fr);
+  gap: 10px;
+}
+.game-watch.match-page .watch-brand { overflow: hidden; }
+.game-watch.match-page .match-scoreline {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  width: 100%;
+  min-height: 0;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+}
+.game-watch.match-page .team-score > span,
+.game-watch.match-page .team-score > strong { font-size: 11px; }
+.game-watch.match-page .round-score { padding-inline: 8px; }
+.game-watch.match-page .seat-top { top: 62px; }
+.game-watch.match-page .seat-left,
+.game-watch.match-page .seat-right { top: 36%; }
+.game-watch.match-page .live-thought-stream {
+  top: 52%;
+  right: auto;
+  bottom: auto;
+  left: 2.5%;
+  width: min(34%, 410px);
+  max-height: 44%;
+  gap: 5px;
+  transform: translateY(-50%);
+}
+.game-watch.match-page .live-thought-stream.thought-at-right { right: auto; left: 2.5%; }
+.game-watch.match-page .thought-stream-heading { padding-inline: 3px; }
+.game-watch.match-page .thought-stream-heading > strong { font-size: 13px; }
+.game-watch.match-page .thought-stream-heading > span { font-size: 10px; }
+.game-watch.match-page .thought-stream-window { overflow: visible; }
+.game-watch.match-page .thought-event {
+  display: block;
+  height: auto;
+  position: relative;
+  overflow: hidden;
+  padding: 10px 12px;
+  border: 1px solid #ffffff43;
+  border-left: 4px solid var(--seat-color);
+  border-radius: 7px;
+  background: #092f25ed;
+  box-shadow: 0 7px 22px #061a1470;
+  backdrop-filter: blur(8px);
+}
+.game-watch.match-page .thought-author { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.game-watch.match-page .thought-author .robot-portrait { flex: 0 0 32px; width: 32px; height: 32px; }
+.game-watch.match-page .thought-author > span { display: grid; flex: 0 1 auto; min-width: 0; gap: 2px; }
+.game-watch.match-page .thought-author > span strong { overflow: hidden; color: #fff3cf; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.game-watch.match-page .thought-author > span small { color: #bdd5c2; font-size: 10px; }
+.game-watch.match-page .thought-action {
+  overflow: hidden;
+  max-width: 48%;
+  margin-left: auto;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--seat-color) 70%, white);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--seat-color) 30%, #15392c);
+  color: #fff8e6;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-watch.match-page .thought-copy,
+.game-watch.match-page .thought-read { margin-top: 8px; }
+.game-watch.match-page .thought-copy > small,
+.game-watch.match-page .thought-read > header strong { color: #f0d981; font-size: 11px; font-weight: 800; }
+.game-watch.match-page .thought-copy > p,
+.game-watch.match-page .thought-read > p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0 0;
+  color: #f4f0df;
+  font-size: 12px;
+  line-height: 1.42;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.game-watch.match-page .thought-read { padding-top: 7px; border-top: 1px solid #ffffff2b; }
+.game-watch.match-page .thought-read > header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.game-watch.match-page .thought-read > header span { color: #c2d9c7; font-size: 10px; }
+.game-watch.match-page .thought-read > p { color: #f6e9b7; }
+.game-watch.match-page .thought-arrive-enter-active,
+.game-watch.match-page .thought-arrive-leave-active { transition: opacity .22s ease, transform .22s ease; }
+.game-watch.match-page .thought-arrive-enter-from,
+.game-watch.match-page .thought-arrive-leave-to { opacity: 0; transform: translateY(8px); }
+.game-watch.match-page .thought-event.is-thinking .thought-action { animation: thought-pulse 1.1s ease-in-out infinite alternate; }
+@keyframes thought-pulse { from { box-shadow: 0 0 0 #e9d07800; } to { box-shadow: 0 0 12px #e9d07855; } }
+
+@media (max-width: 760px) {
+  .game-watch.match-page .watch-header {
+    grid-template-columns: minmax(0, .82fr) minmax(145px, 1.2fr) auto;
+    gap: 5px;
+  }
+  .game-watch.match-page .watch-brand small { display: none; }
+  .game-watch.match-page .watch-brand > b { flex-basis: 29px; width: 29px; height: 25px; font-size: 9px; }
+  .game-watch.match-page .watch-brand strong { font-size: 11px; }
+  .game-watch.match-page .watch-tools { gap: 4px; }
+  .game-watch.match-page .live-indicator { font-size: 9px; }
+  .game-watch.match-page .audio-toggle { min-height: 28px; padding-inline: 5px; font-size: 9px; }
+  .game-watch.match-page .match-scoreline { gap: 3px; padding-inline: 2px; }
+  .game-watch.match-page .team-score { gap: 3px; }
+  .game-watch.match-page .team-score > span,
+  .game-watch.match-page .team-score > strong { font-size: 9px; }
+  .game-watch.match-page .team-score > b { font-size: 11px; }
+  .game-watch.match-page .round-score { padding-inline: 5px; }
+  .game-watch.match-page .round-score small,
+  .game-watch.match-page .round-score span { font-size: 8px; }
+  .game-watch.match-page .round-score strong { font-size: 10px; }
+  .game-watch.match-page .seat-top { top: 52px; }
+  .game-watch.match-page .seat-left,
+  .game-watch.match-page .seat-right { top: 35%; }
+  .game-watch.match-page .live-thought-stream { top: 52%; width: min(34%, 280px); max-height: 43%; }
+  .game-watch.match-page .thought-stream-heading { margin-bottom: 0; }
+  .game-watch.match-page .thought-stream-heading > strong { font-size: 12px; }
+  .game-watch.match-page .thought-event { padding: 6px 8px; }
+  .game-watch.match-page .thought-author .robot-portrait { flex-basis: 25px; width: 25px; height: 25px; }
+  .game-watch.match-page .thought-author > span strong { font-size: 11px; }
+  .game-watch.match-page .thought-copy { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 5px; margin-top: 5px; }
+  .game-watch.match-page .thought-copy > small,
+  .game-watch.match-page .thought-read > header strong { font-size: 10px; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { font-size: 11px; line-height: 1.3; -webkit-line-clamp: 1; }
+  .game-watch.match-page .thought-read { margin-top: 4px; padding-top: 4px; }
+  .game-watch.match-page .thought-event { padding: 8px 9px; }
+  .game-watch.match-page .thought-author .robot-portrait { flex-basis: 28px; width: 28px; height: 28px; }
+  .game-watch.match-page .thought-author > span strong { font-size: 12px; }
+  .game-watch.match-page .thought-author > span small,
+  .game-watch.match-page .thought-read > header span { font-size: 9px; }
+  .game-watch.match-page .thought-action { padding: 4px 6px; font-size: 11px; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { font-size: 12px; line-height: 1.35; -webkit-line-clamp: 2; }
+}
+
+@media (max-width: 430px) {
+  .game-watch.match-page .watch-header { grid-template-columns: minmax(0, .82fr) minmax(105px, .9fr) auto; gap: 3px; }
+  .game-watch.match-page .watch-brand { gap: 5px; }
+  .game-watch.match-page .watch-brand > b { flex-basis: 27px; width: 27px; height: 24px; font-size: 8px; }
+  .game-watch.match-page .watch-brand strong { font-size: 10px; }
+  .game-watch.match-page .watch-tools { gap: 2px; }
+  .game-watch.match-page .live-indicator { gap: 3px; font-size: 8px; }
+  .game-watch.match-page .live-indicator i { width: 5px; height: 5px; }
+  .game-watch.match-page .audio-toggle { min-height: 26px; padding-inline: 4px; font-size: 8px; }
+  .game-watch.match-page .team-score > strong { display: none; }
+  .game-watch.match-page .team-score > span { font-size: 8px; }
+  .game-watch.match-page .round-score { gap: 0; padding-inline: 3px; }
+  .game-watch.match-page .round-score small,
+  .game-watch.match-page .round-score span { font-size: 7px; }
+  .game-watch.match-page .round-score strong { font-size: 9px; }
+  .game-watch.match-page .seat-top { top: 50px; }
+  .game-watch.match-page .seat-left,
+  .game-watch.match-page .seat-right { top: 40%; }
+  .game-watch.match-page .live-thought-stream { top: 58%; right: 3%; left: auto; width: min(58%, 300px); max-height: 37%; gap: 3px; }
+  .game-watch.match-page .live-thought-stream.thought-at-right { right: 3%; left: auto; }
+  .game-watch.match-page .thought-stream-heading > strong { font-size: 12px; }
+  .game-watch.match-page .thought-stream-heading > span { font-size: 9px; }
+  .game-watch.match-page .thought-event { padding: 7px 8px; }
+  .game-watch.match-page .thought-author .robot-portrait { flex-basis: 25px; width: 25px; height: 25px; }
+  .game-watch.match-page .thought-author > span strong { font-size: 11px; }
+  .game-watch.match-page .thought-author > span small { font-size: 8px; }
+  .game-watch.match-page .thought-action { font-size: 10px; }
+  .game-watch.match-page .thought-copy,
+  .game-watch.match-page .thought-read { margin-top: 6px; }
+  .game-watch.match-page .thought-copy > small,
+  .game-watch.match-page .thought-read > header strong { font-size: 10px; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { margin-top: 2px; font-size: 11px; line-height: 1.28; -webkit-line-clamp: 2; }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .game-watch.match-page .watch-header { top: 5px; height: 31px; }
+  .game-watch.match-page .seat-top { top: 43px; }
+  .game-watch.match-page .seat-left,
+  .game-watch.match-page .seat-right { top: 31%; }
+  .game-watch.match-page .live-thought-stream { top: 52%; max-height: none; }
+  .game-watch.match-page .thought-copy { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: baseline; gap: 5px; margin-top: 5px; }
+  .game-watch.match-page .thought-copy > small,
+  .game-watch.match-page .thought-read > header strong { font-size: 10px; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { font-size: 11px; line-height: 1.3; -webkit-line-clamp: 2; }
+  .game-watch.match-page .thought-read { margin-top: 4px; padding-top: 4px; }
+  .game-watch.match-page .thought-event { padding: 7px 8px; }
+  .game-watch.match-page .thought-author .robot-portrait { flex-basis: 25px; width: 25px; height: 25px; }
+  .game-watch.match-page .thought-copy,
+  .game-watch.match-page .thought-read { margin-top: 5px; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { font-size: 11px; line-height: 1.28; -webkit-line-clamp: 2; }
+}
+
+@media (min-width: 900px) and (orientation: landscape) and (min-height: 621px) {
+  .game-watch.match-page .seat-top { top: 64px; }
+  .game-watch.match-page .live-thought-stream { width: min(31%, 410px); max-height: 38%; }
+  .game-watch.match-page .thought-copy > p,
+  .game-watch.match-page .thought-read > p { font-size: 13px; }
+}
+
+.game-watch.match-page .player-seat.thinking:not(.finished) {
+  animation: active-seat-thinking 1.25s ease-in-out infinite alternate;
+}
+.game-watch.match-page .hand-thought {
+  position: absolute;
+  z-index: var(--layer-thought);
+  bottom: 20%;
+  left: 2.5%;
+  display: flex;
+  align-items: center;
+  width: min(39%, 460px);
+  height: 32%;
+  max-height: 34%;
+  overflow: hidden;
+  color: #f8f3e5;
+  pointer-events: none;
+}
+.game-watch.match-page .hand-thought > p {
+  display: -webkit-box;
+  overflow: hidden;
+  width: 100%;
+  margin: 0;
+  color: #fff8e8;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
+  text-shadow: 0 1px 3px #07160f, 0 0 6px #07160f;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;
+}
+.game-watch.match-page .hand-thought-enter-active,
+.game-watch.match-page .hand-thought-leave-active { transition: opacity .3s ease; }
+.game-watch.match-page .hand-thought-enter-from,
+.game-watch.match-page .hand-thought-leave-to { opacity: 0; }
+.game-watch.match-page .console-controls {
+  right: 12px;
+  bottom: 8px;
+}
+@keyframes active-seat-thinking {
+  from { box-shadow: 0 0 0 1px color-mix(in srgb, var(--seat-color) 25%, transparent), 0 3px 10px #06291e55; }
+  to { box-shadow: 0 0 0 3px color-mix(in srgb, var(--seat-color) 72%, transparent), 0 4px 15px #06291e99; }
+}
+
+@media (max-width: 519px) and (orientation: portrait) {
+  .game-watch.match-page .hand-thought { bottom: 22%; left: 3%; width: min(52%, 300px); height: 24%; max-height: 24%; }
+  .game-watch.match-page .hand-thought > p { font-size: 11px; -webkit-line-clamp: 9; }
+}
+@media (orientation: landscape) and (max-height: 620px) {
+  .game-watch.match-page .hand-thought { bottom: 20%; left: 2.5%; width: min(39%, 340px); height: 32%; max-height: 35%; }
+  .game-watch.match-page .hand-thought > p { font-size: 11px; line-height: 1.3; -webkit-line-clamp: 7; }
+  .game-watch.match-page .console-controls { right: 8px; bottom: 4px; max-width: 170px; }
+  .game-watch.match-page .console-controls button { min-height: 22px; padding-inline: 5px; font-size: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-watch.match-page .hand-thought-enter-active,
+  .game-watch.match-page .hand-thought-leave-active,
+  .game-watch.match-page .player-seat.thinking:not(.finished) { animation: none; transition: none; }
+}

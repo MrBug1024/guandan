@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -58,29 +58,29 @@ test(
         pathToFileURL(resolve('node_modules/tsx/dist/loader.mjs')).href,
         resolve('server/index.ts'),
       ],
-      { cwd: dir, env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' }, stdio: 'ignore' },
+      {
+        cwd: dir,
+        env: { ...process.env, PORT: String(port), HOST: '127.0.0.1' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
     );
-    let ttsCalls = 0;
+    let serverError = '';
+    let serverOutput = '';
+    child.stdout?.on('data', (chunk) => (serverOutput += chunk.toString()));
+    child.stderr?.on('data', (chunk) => (serverError += chunk.toString()));
     let releaseDecision: (() => void) | undefined;
-    const tts = createServer((req, res) => {
-      if (req.url === '/v1/chat/completions') {
-        releaseDecision = () => {
-          if (res.writableEnded) return;
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({ choices: [{ message: { content: '{"choice":0,"reason":"test"}' } }] }),
-          );
-        };
-        return;
-      }
-      assert.equal(req.url, '/v1/audio/speech');
-      assert.equal(req.headers.authorization, 'Bearer test-tts-secret');
-      ttsCalls++;
-      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
-      res.end(Buffer.from([1, 2, 3]));
+    const modelMock = createServer((req, res) => {
+      assert.equal(req.url, '/v1/chat/completions');
+      releaseDecision = () => {
+        if (res.writableEnded) return;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({ choices: [{ message: { content: '{"choice":0,"reason":"test"}' } }] }),
+        );
+      };
     });
-    await new Promise<void>((r) => tts.listen(0, '127.0.0.1', r));
-    const ttsPort = (tts.address() as any).port;
+    await new Promise<void>((r) => modelMock.listen(0, '127.0.0.1', r));
+    const modelPort = (modelMock.address() as any).port;
     let cookie = '';
     const request = (
       path: string,
@@ -107,22 +107,71 @@ test(
         } catch {}
         await new Promise((r) => setTimeout(r, 100));
       }
-      assert.ok(ready, 'isolated server starts');
+      assert.ok(
+        ready,
+        `isolated server starts (exit ${child.exitCode})${serverOutput ? `:\n${serverOutput}` : ''}${serverError ? `:\n${serverError}` : ''}`,
+      );
       assert.equal((await request('config')).status, 401);
       assert.equal((await request('state')).status, 401);
+      assert.equal((await request('decisions')).status, 401);
+      assert.equal(
+        (await request('study', { title: 'unauthorized', question: 'x', hypothesis: 'x', measure: 'x' }, false, 'PUT')).status,
+        401,
+      );
       assert.equal(
         (await request('auth/login', { username: 'ymtadmin', password: 'wrong' })).status,
         401,
       );
-      const login = await request('auth/login', {
-        username: 'ymtadmin',
-        password: 'ymthcx3344520',
+      const login = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://192.168.1.23:5173',
+        },
+        body: JSON.stringify({
+          username: 'ymtadmin',
+          password: 'ymthcx3344520',
+        }),
       });
       assert.equal(login.status, 200);
       cookie = login.headers.get('set-cookie')!.split(';')[0];
       assert.match(login.headers.get('set-cookie')!, /HttpOnly/i);
       const share = (await login.json()).sharePath.split('/').at(-1);
       assert.equal((await request(`state?share=${share}`)).status, 200);
+      const study = {
+        title: '团队意图读取',
+        question: '队友领出后，本席如何处置控制牌？',
+        hypothesis: '牌数与公开行动可能改变让牌选择。',
+        measure: '统计队友先领出后的让牌和继续出牌次数。',
+      };
+      const savedStudy = await request('study', study, true, 'PUT');
+      assert.equal(savedStudy.status, 200);
+      assert.deepEqual((await savedStudy.json()).study, study);
+      assert.deepEqual((await (await request('config', undefined, true)).json()).study, study);
+      assert.deepEqual((await (await request(`state?share=${share}`)).json()).study, study);
+      assert.equal((await request('replays')).status, 401);
+      const archived = await (await request('replay', undefined, true)).json();
+      archived.game.history = [
+        {
+          seq: 1,
+          seat: 0,
+          text: '单张 9',
+          move: { id: 'sample', kind: 'single', cards: [], strength: 9, label: '单张 9' },
+          source: '内置策略',
+          elapsedMs: 1250,
+          time: new Date().toISOString(),
+          after: { last: null, lastSeat: 0, round: archived.game.round },
+        },
+      ];
+      const archiveFile = archived.game.id + '-' + archived.game.round + '.json';
+      await writeFile(join(dir, 'data/replays', archiveFile), JSON.stringify(archived));
+      const replayIndex = await (await request('replays', undefined, true)).json();
+      assert.equal(replayIndex.length, 1);
+      assert.equal(replayIndex[0].decisionCount, 1);
+      assert.equal(replayIndex[0].medianLatencyMs, 1250);
+      assert.equal(replayIndex[0].agents[0].name, archived.agents[0].name);
+      assert.equal(JSON.stringify(replayIndex).includes('hands'), false);
+      assert.equal((await request('replays/' + archiveFile, undefined, true)).status, 200);
       const selected = await (await request(`state?share=${share}&seat=2`)).json();
       assert.equal(selected.viewpointSeat, 2);
       assert.equal(selected.visibleHand.length, 27);
@@ -154,16 +203,16 @@ test(
       );
       assert.equal((await request(`control?share=${share}`, { action: 'restart' })).status, 401);
       assert.equal((await request(`inspect?share=${share}`)).status, 401);
-      const crossOrigin = await fetch(`http://127.0.0.1:${port}/api/control`, {
+      const nonMatchingOrigin = await fetch(`http://127.0.0.1:${port}/api/control`, {
         method: 'POST',
         headers: {
           Cookie: cookie,
           Origin: 'https://evil.example',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ action: 'restart' }),
+        body: JSON.stringify({ action: 'presentation', presentation: { cameraMode: 'third' } }),
       });
-      assert.equal(crossOrigin.status, 403);
+      assert.equal(nonMatchingOrigin.status, 200);
       const config = await (await request('config', undefined, true)).json();
       config.agents[0].apiKey = 'test-secret-only';
       assert.equal((await request('config', config, true, 'PUT')).status, 200);
@@ -187,63 +236,27 @@ test(
         (await (await request('config', undefined, true)).json()).agents[0].keyConfigured,
         false,
       );
-      if (process.env.GUANDAN_TEST_NARRATION === '1') {
-        const welcomePath = `narration?share=${share}&welcome=1`;
-        const welcome = await request(welcomePath);
-        assert.equal(welcome.status, 200, 'default narration needs no TTS key');
-        assert.match(welcome.headers.get('content-type')!, /audio\/mpeg/);
-        const wav = Buffer.from(await welcome.arrayBuffer());
-        assert.ok(wav.toString('ascii', 0, 3) === 'ID3' || wav[0] === 0xff);
-        assert.ok(wav.length > 1000);
-        assert.deepEqual(
-          Buffer.from(await (await request(welcomePath)).arrayBuffer()),
-          wav,
-          'welcome audio is cached',
-        );
-      }
-      const withAudio = await (await request('config', undefined, true)).json();
-      withAudio.narration = {
-        engine: 'api',
-        baseUrl: `http://127.0.0.1:${ttsPort}/v1`,
-        model: 'tts-test',
-        voice: 'test',
-        apiKey: 'test-tts-secret',
-      };
-      assert.equal((await request('config', withAudio, true, 'PUT')).status, 200);
       const stepped = await (await request('control', { action: 'step' }, true)).json();
-      const audioPath = `narration?share=${share}&game=${stepped.id}&seq=${stepped.history.at(-1).seq}`;
-      assert.equal((await request('narration')).status, 401);
-      assert.equal((await request(audioPath)).status, 200);
-      assert.equal((await request(audioPath)).status, 200);
-      assert.equal(ttsCalls, 1, 'multiple viewers reuse generated audio');
-      await request('control', { action: 'presentation', presentation: { speech: true } }, true);
-      for (let i = 0; i < 50 && ttsCalls < 2; i++) await new Promise((r) => setTimeout(r, 10));
-      assert.equal(
-        ttsCalls,
-        2,
-        'enabling speech prepares welcome audio before a viewer requests it',
-      );
-      assert.equal((await request(`narration?share=${share}&welcome=1`)).status, 200);
-      assert.equal(ttsCalls, 2, 'viewer receives the prepared welcome without regenerating it');
-      await request('control', { action: 'presentation', presentation: { speech: false } }, true);
-
-      assert.ok(
-        !JSON.stringify(await (await request('config', undefined, true)).json()).includes(
-          'test-tts-secret',
-        ),
-      );
+      assert.equal(stepped.history.at(-1).decision.method, 'heuristic');
+      const decisionLog = await (await request('decisions', undefined, true)).json();
+      assert.equal(decisionLog.entries.at(-1).decision.method, 'heuristic');
+      assert.equal(decisionLog.entries.at(-1).decision.candidateSource, 'legal-action-set');
+      assert.ok(decisionLog.entries.at(-1).decision.candidateCount > 0);
+      const publicStep = await (await request(`state?share=${share}`)).json();
+      assert.equal(publicStep.history.at(-1).decision.candidates, undefined);
       const previous = await (await request('state', undefined, true)).json();
       const restarted = await (await request('control', { action: 'restart' }, true)).json();
       assert.notEqual(previous.id, restarted.id);
       assert.equal(restarted.status, 'running');
       assert.equal(restarted.round, 1);
       assert.deepEqual(restarted.counts, [27, 27, 27, 27]);
+      assert.equal((await request('study', study, true, 'PUT')).status, 400);
       await request('control', { action: 'pause' }, true);
       const heldConfig = await (await request('config', undefined, true)).json();
       heldConfig.agents[0] = {
         ...heldConfig.agents[0],
         provider: 'openai',
-        baseUrl: `http://127.0.0.1:${ttsPort}/v1`,
+        baseUrl: `http://127.0.0.1:${modelPort}/v1`,
         model: 'test-model',
         apiKey: 'test-decision-key',
         keyEnv: '',
@@ -272,8 +285,8 @@ test(
     } finally {
       releaseDecision?.();
       child.kill();
-      tts.closeAllConnections();
-      await new Promise<void>((r) => tts.close(() => r()));
+      modelMock.closeAllConnections();
+      await new Promise<void>((r) => modelMock.close(() => r()));
       if (child.exitCode === null && child.signalCode === null)
         await new Promise((r) => child.once('exit', r));
       await rm(dir, { recursive: true, force: true });

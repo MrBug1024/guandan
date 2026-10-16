@@ -5,8 +5,11 @@ const paths: Record<string, string> = {
   models: 'M5 3h14v18H5zM8 7h8M8 12h8M8 17h5',
   live: 'M3 5h18v12H3zM8 21h8M12 17v4M10 8l5 3-5 3z',
   replay: 'M6 3h12v18H6zM9 7h6M9 11h6M9 15h4',
+  analytics: 'M3 3v18h18M7 14l4-4 3 3 6-7M16 6h4v4',
+  refresh: 'M20 7v5h-5M4 17v-5h5M5.6 9A7 7 0 0 1 17.3 6.5L20 12M4 12l2.7 5.5A7 7 0 0 0 18.4 15',
   exit: 'M9 3H4v18h5M13 7l5 5-5 5M8 12h10',
   settings: 'M4 7h16M4 17h16M8 4v6M16 14v6',
+  orientation: 'M20 7v5h-5M4 17v-5h5M5.6 9A7 7 0 0 1 17.3 6.5L20 12M4 12l2.7 5.5A7 7 0 0 0 18.4 15',
 };
 </script>
 <template>

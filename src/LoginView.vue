@@ -31,22 +31,22 @@ async function login() {
 <template>
   <main class="login-page">
     <section class="login-story">
-      <div class="login-club">g <span>GUANDAN / AI CLUB</span></div>
-      <span class="eyebrow">FOUR MINDS. ONE TABLE.</span>
-      <h2>一场牌局，<br />四种思考。</h2>
-      <p>让不同的 AI 围桌而坐。<br />从每次出牌里，发现策略与默契。</p>
+      <div class="login-club">AI/4 <span>THE DECISION ROOM</span></div>
+      <span class="eyebrow">FOUR AGENTS · ONE EXPERIMENT</span>
+      <h2>一张牌桌，<br />观察四种决策。</h2>
+      <p>研究 AI 如何协作、对抗、读取局势，<br />以及在压力下如何改变选择。</p>
       <div class="login-deck" aria-hidden="true">
         <span>♠<b>A</b></span
         ><span>♥<b>2</b></span
         ><span>♣<b>K</b></span>
       </div>
-      <small>规则引擎裁判 · 独立决策 · 沉浸观战</small>
+      <small>规则裁判 · 多智能体博弈 · 可复核决策</small>
     </section>
     <form class="login-card" @submit.prevent="login">
-      <div class="login-mark">会员工作室</div>
-      <p class="login-eyebrow">YOUR WORKSPACE</p>
-      <h1>欢迎回来</h1>
-      <p>管理员登录后管理模型、赛事与直播。</p>
+      <div class="login-mark">研究工作台</div>
+      <p class="login-eyebrow">AI/4 · EXPERIMENT CONTROL</p>
+      <h1>管理员登录</h1>
+      <p>配置选手、对局课题、直播与历史决策。</p>
       <label
         >管理员账号<input v-model="username" autocomplete="username" required maxlength="80"
       /></label>
@@ -60,9 +60,9 @@ async function login() {
       /></label>
       <p v-if="error" role="alert" class="login-error">{{ error }}</p>
       <button class="primary" :disabled="pending">
-        {{ pending ? '正在登录…' : '登录工作室' }}
+        {{ pending ? '正在登录…' : '进入研究工作台' }}
       </button>
-      <small>观众无需登录，请使用管理员分享的观战链接。</small>
+      <small>观众无需登录，可使用管理员提供的直播链接。</small>
     </form>
   </main>
 </template>

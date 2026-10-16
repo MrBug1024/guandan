@@ -24,6 +24,41 @@ export interface Move {
   label: string;
   substitutions?: Record<string, number>;
 }
+export interface StudyProtocol {
+  title: string;
+  question: string;
+  hypothesis: string;
+  measure: string;
+}
+export const DEFAULT_STUDY: StudyProtocol = {
+  title: '搭档协作边界',
+  question: '队友保有牌权且本席有可选动作时，AI 会让牌还是接管？',
+  hypothesis: '选择可能随队友牌数、己方手牌余量与局势压力而变化。',
+  measure: '只统计本席有合法出牌选择的情境；强制要不起另计，不直接判定优劣。',
+};
+export interface DecisionCandidate {
+  index: number;
+  moveId: string;
+  kind: Kind;
+  label: string;
+  cardCount: number;
+  strength: number;
+}
+export type DecisionMoment = 'routine' | 'tactical' | 'critical';
+export interface DecisionTrace {
+  method: 'model' | 'heuristic' | 'forced' | 'fallback';
+  candidateSource: 'model-shortlist' | 'legal-action-set' | 'forced' | 'unavailable';
+  providerRequestCount?: number;
+  candidateCount: number;
+  legalActionCount?: number;
+  candidates?: DecisionCandidate[];
+  choiceIndex?: number;
+  selectedMoveId: string;
+  rationale: string;
+  tacticalRead?: string;
+  moment?: DecisionMoment;
+}
+export type PublicDecisionTrace = Pick<DecisionTrace, 'method' | 'rationale' | 'tacticalRead' | 'moment'>;
 export interface AgentConfig {
   name: string;
   provider: 'builtin' | 'openai';
@@ -52,8 +87,11 @@ export interface Entry {
   elapsedMs: number;
   time: string;
   error?: string;
+  voiceLine?: string;
   after?: GameFrame;
+  decision?: DecisionTrace;
 }
+export type PublicEntry = Omit<Entry, 'decision'> & { decision?: PublicDecisionTrace };
 export interface Game {
   id: string;
   round: number;
@@ -87,12 +125,13 @@ export interface Game {
   tributeUntil?: number;
   wind?: { seat: number; from: number; at: number };
 }
-export interface PublicGame extends Omit<Game, 'hands'> {
-  narration?: { engine: 'browser' | 'api'; ready: boolean };
-  presentation?: { speech: boolean; showFeed: boolean; cameraMode?: 'first' | 'third' };
+export interface PublicGame extends Omit<Game, 'hands' | 'history'> {
+  presentation?: { showFeed: boolean; cameraMode?: 'first' | 'third' };
   counts: number[];
   hands?: Card[][];
+  history: PublicEntry[];
   agents: AgentConfig[];
+  study?: StudyProtocol;
   thinking: number | null;
   delayMs: number;
   autoNext: boolean;

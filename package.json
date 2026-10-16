@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "dev": "concurrently -k \"tsx watch server/index.ts\" \"vite\"",
     "build": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.server.json && vite build",
     "start": "tsx server/index.ts",
     "test": "tsx --test tests/*.test.ts"

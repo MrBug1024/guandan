@@ -1,6 +1,12 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { cardName, type AgentConfig, type Game, type Move } from '../shared/types.js';
+import {
+  cardName,
+  type AgentConfig,
+  type DecisionTrace,
+  type Game,
+  type Move,
+} from '../shared/types.js';
 export const defaults: AgentConfig[] = [
   {
     name: '桃桃',
@@ -56,6 +62,29 @@ export function heuristic(g: Game, moves: Move[]): Move {
   return (
     [...playable].sort((a, b) => score(b) - score(a))[0] ?? moves.find((m) => m.kind === 'pass')!
   );
+}
+function heuristicRationale(g: Game, move: Move): string {
+  const seat = g.turn;
+  if (move.kind === 'pass') return '当前没有合适的压制动作，选择让牌并保留手牌结构。';
+  if (move.cards.length === g.hands[seat].length) return `本手可一次打空 ${move.cards.length} 张手牌，直接完成出清。`;
+  if (['bomb', 'flush', 'kings'].includes(move.kind))
+    return `使用${move.label}压过当前牌权；高强度牌型代价较高，只有局势需要时才值得消耗。`;
+  if (Object.keys(move.substitutions ?? {}).length)
+    return `用逢人配组成${move.label}，一次脱手 ${move.cards.length} 张；同时权衡万能牌的后续价值。`;
+  if (g.last && g.lastSeat % 2 !== seat % 2)
+    return `压过对手刚领出的${g.last.label.split(' · ')[0]}，争取接管牌权并脱手 ${move.cards.length} 张。`;
+  return `以${move.label}一次脱手 ${move.cards.length} 张；本地评分兼顾牌数、牌力与炸弹消耗。`;
+}
+function heuristicTacticalRead(g: Game): string | undefined {
+  const seat = g.turn;
+  const threatCount = g.hands.reduce((best, hand, index) =>
+    index % 2 !== seat % 2 && hand.length > 0 ? Math.min(best, hand.length) : best, Infinity);
+  if (threatCount <= 5)
+    return `对手最少剩 ${threatCount} 张，可能正在寻找短牌型脱手；张数不能揭示具体牌面。`;
+  if (!g.last) return undefined;
+  if (g.lastSeat % 2 === seat % 2)
+    return `队友已领出${g.last.label.split(' · ')[0]}；后续动作可观察队友能否继续保持牌权。`;
+  return `对手刚领出${g.last.label.split(' · ')[0]}；单次出牌不足以判断其整手牌型或后续意图。`;
 }
 export function shortlist(g: Game, moves: Move[]): Move[] {
   const best = heuristic(g, moves);
@@ -161,21 +190,54 @@ export async function decide(
   config: AgentConfig,
   g: Game,
   moves: Move[],
-): Promise<{ move: Move; source: string; reason: string }> {
-  if (config.provider === 'builtin')
+): Promise<{ move: Move; source: string; reason: string; decision: DecisionTrace }> {
+  if (config.provider === 'builtin') {
+    const move = heuristic(g, moves);
+    const protectedPartnerLead =
+      g.last && g.lastSeat === (g.turn + 2) % 4 &&
+      !g.finished.includes(g.lastSeat) &&
+      g.hands[g.turn].length > g.last.cards.length;
+    const reason = protectedPartnerLead
+      ? '固定规则：搭档已领出且可保留牌权时，本地策略优先让牌。'
+      : heuristicRationale(g, move);
+    const tacticalRead = heuristicTacticalRead(g);
     return {
-      move: heuristic(g, moves),
+      move,
       source: '本地策略',
-      reason: '根据手牌结构与队友位置选择合法动作',
+      reason,
+      decision: {
+        method: 'heuristic',
+        candidateSource: 'legal-action-set',
+        providerRequestCount: 0,
+        candidateCount: moves.length,
+        legalActionCount: moves.length,
+        selectedMoveId: move.id,
+        rationale: reason,
+          ...(tacticalRead ? { tacticalRead } : {}),
+      },
     };
+  }
   if (moves.length === 1)
-    return { move: moves[0], source: '裁判强制动作', reason: '仅有一个合法动作，无需调用模型' };
+    return {
+      move: moves[0],
+      source: '裁判强制动作',
+      reason: '仅有一个合法动作，无需调用模型。',
+      decision: {
+        method: 'forced',
+        candidateSource: 'forced',
+        providerRequestCount: 0,
+        candidateCount: 1,
+        legalActionCount: 1,
+        selectedMoveId: moves[0].id,
+        rationale: '仅有一个合法动作，无需调用模型。',
+      },
+    };
   const candidates = shortlist(g, moves),
     situation = observation(g, candidates);
   const messages: any[] = [
     {
       role: 'system',
-      content: `你是掼蛋选手。${config.personality}。仅输出 JSON {"choice":整数,"reason":"简短公开解说"}，不得声称知道其他玩家手牌。${config.jev?.enabled ? '可调用 jev_decide 获取辅助建议，但最终选择由你决定。工具只了解你的手牌和公开信息。若接口不支持原生工具调用，可以输出 JSON {"tool":"jev_decide"} 请求建议，收到建议后再输出最终 choice。' : ''}`,
+      content: `你是掼蛋选手。${config.personality}。只输出 JSON {"choice":整数,"reason":"简短公开决策说明","read":"基于公开行动的战术推测","moment":"routine|tactical|critical"}。reason 只用一句自然、具体的话说明这手实际选择的关键取舍，不输出隐藏思维链，不编造情绪、手牌或意图；角色个性只影响风险偏好、协作风格和措辞。moment 只在真实有看点时标记：routine=强制动作、常规跟牌或没有实质取舍；tactical=在让牌/争牌权、手牌结构、队友协作或资源消耗之间确有取舍；critical=这手涉及炸弹等高价值牌，或直接决定出完/应对即将出完的对手。拿不准就选 routine。read 仅在公开历史和剩余张数支持一个有不确定性的对手倾向推测时填写，不得声称知道他人手牌或内心意图；证据不足时为空字符串。${config.jev?.enabled ? '可调用 jev_decide 获取辅助建议，但最终选择由你决定。工具只了解你的手牌和公开信息。若接口不支持原生工具调用，可以输出 JSON {"tool":"jev_decide"} 请求建议，收到建议后再输出最终 choice。' : ''}`,
     },
     { role: 'user', content: situation },
   ];
@@ -187,16 +249,20 @@ export async function decide(
       parameters: { type: 'object', properties: {}, additionalProperties: false },
     },
   };
+  const authorization = `Bearer ${key(config)}`;
   let result: any,
     usedTool = false,
     toolFailed = false,
-    textTools = false;
+    textTools = false,
+    providerRequestCount = 0;
+  try {
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: Response;
     for (let retry = 0; ; retry++) {
+      providerRequestCount++;
       response = await fetch(config.baseUrl.replace(/\/$/, '') + '/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key(config)}` },
+        headers: { 'Content-Type': 'application/json', Authorization: authorization },
         signal: AbortSignal.timeout(45000),
         body: JSON.stringify({
           model: config.model,
@@ -217,7 +283,11 @@ export async function decide(
       }
       break;
     }
-    if (!response.ok) throw Error(`模型 HTTP ${response.status}`);
+  if (!response.ok) {
+    const error = Error(`模型 HTTP ${response.status}`);
+    Object.assign(error, { providerRequestCount });
+    throw error;
+  }
     const json = (await response.json()) as any,
       message = json.choices?.[0]?.message;
     if (attempt === 0 && config.jev?.enabled && message?.tool_calls?.length) {
@@ -239,7 +309,12 @@ export async function decide(
       }
       continue;
     }
-    result = parseJson((message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''));
+    try {
+      result = parseJson((message?.content ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''));
+    } catch (error) {
+      if (error && typeof error === 'object') Object.assign(error, { providerRequestCount });
+      throw error;
+    }
     if (attempt === 0 && config.jev?.enabled && result?.tool === 'jev_decide') {
       usedTool = true;
       let advice: unknown;
@@ -256,21 +331,62 @@ export async function decide(
           content:
             'jev_decide 工具返回：' +
             JSON.stringify(advice) +
-            '。请你现在决定最终出牌，只输出 choice 和 reason 的 JSON。',
+            '。请你现在决定最终出牌，只输出 choice、reason、read、moment 的 JSON。',
         },
       );
       continue;
     }
     break;
   }
+  } catch (error) {
+    if (error && typeof error === 'object')
+      Object.assign(error, { providerRequestCount });
+    throw error;
+  }
   const index = result?.choice;
-  if (!Number.isInteger(index) || index < 0 || index >= candidates.length)
-    throw Error('模型没有返回有效的选项编号');
+  if (!Number.isInteger(index) || index < 0 || index >= candidates.length) {
+    const error = Error('模型没有返回有效的选项编号');
+    Object.assign(error, { providerRequestCount });
+    throw error;
+  }
+  const rawReason = typeof result.reason === 'string' ? result.reason.trim() : '';
+  const reason = String(rawReason || '模型选择').slice(0, 140) +
+    (usedTool ? (toolFailed ? '（JEV 未成功，选手自主决策）' : '（咨询 JEV）') : '');
+  const tacticalRead = typeof result.read === 'string' ? result.read.trim().slice(0, 120) : '';
+  const move = candidates[index];
+  const opponentThreat = g.hands.some((hand, seat) =>
+    seat % 2 !== g.turn % 2 && hand.length > 0 && hand.length <= 2,
+  );
+  const criticalState = ['bomb', 'plate', 'flush', 'kings'].includes(move.kind) ||
+    g.hands[g.turn].length - move.cards.length <= 2 || opponentThreat;
+  const moment = rawReason && result.moment === 'critical' && criticalState
+    ? 'critical'
+    : rawReason && result.moment === 'tactical'
+      ? 'tactical'
+      : 'routine';
   return {
-    move: candidates[index],
+    move,
     source: config.model,
-    reason:
-      String(result.reason ?? '模型选择').slice(0, 180) +
-      (usedTool ? (toolFailed ? '（JEV 未成功，选手自主决策）' : '（咨询 JEV）') : ''),
+    reason,
+    decision: {
+      method: 'model',
+      candidateSource: 'model-shortlist',
+      providerRequestCount,
+      candidateCount: candidates.length,
+      legalActionCount: moves.length,
+      candidates: candidates.map((candidate, candidateIndex) => ({
+        index: candidateIndex,
+        moveId: candidate.id,
+        kind: candidate.kind,
+        label: candidate.label,
+        cardCount: candidate.cards.length,
+        strength: candidate.strength,
+      })),
+      choiceIndex: index,
+      selectedMoveId: move.id,
+      rationale: reason,
+      moment,
+      ...(tacticalRead ? { tacticalRead } : {}),
+    },
   };
 }

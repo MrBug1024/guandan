@@ -10,7 +10,7 @@
 4. 现有模型配置及环境变量仍兼容；无需重新填写旧 Key。管理员保存新配置后，配置文件使用 AES-256-GCM 加密。新 Key 可直接在界面填写，不需要新增环境变量。
 5. `CONTROL_TOKEN` 已停用，可以移除；不能再使用它调用管理 API。所有管理 API 使用登录产生的 HttpOnly 会话 Cookie。
 6. HTTPS 反向代理需保留 Host、X-Forwarded-Proto；代码信任一层代理。不能在反向代理前再增加多层非受控代理。SSE `/api/events` 关闭响应缓冲、允许长连接。`/api/health` 保持公开用于健康检查。
-7. 新容器启动后管理员会话失效，需要重新登录。默认账号为 `ymtadmin`，初始密码按项目负责人此次指定值初始化；不要把密码或 Key 写入部署日志。
+7. 新容器启动后管理员会话失效，需要重新登录。持久化的 `data/admin.json` 会保留既有账号和口令；只有首次创建该文件时才使用初始化凭证，见 [README 启动说明](../README.md#启动与访问)。不要删除 `admin.json` 来重置账号，否则可能导致加密的 `agents.json` 无法解密；不要把密码或 Key 写入部署日志。
 8. 清理前端旧缓存，检查 `/login`、工作室和手机观战页。
 
 非容器方式可在项目目录执行 `git pull --ff-only origin master`、`npm ci`、`npm test`、`npm run build`，再使用原有进程管理器重启 `npm start`。

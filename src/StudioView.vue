@@ -5,12 +5,12 @@ import { replaySession } from './replay';
 import { admin, sharePath } from './auth';
 import ViewPicker from './ViewPicker.vue';
 import UiIcon from './UiIcon.vue';
-import { ROUND_CELEBRATION_MS } from '../shared/broadcast-timing';
+import ExperimentDashboard from './ExperimentDashboard.vue';
+import HistoryAnalysis from './HistoryAnalysis.vue';
 const router = useRouter(),
   route = useRoute();
 const panel = computed(() => String(route.name ?? 'lobby'));
-import { cardName, rankName, type PublicGame, type AgentConfig } from '../shared/types';
-const portrait = new URLSearchParams(location.search).get('layout') === 'portrait';
+import type { PublicGame, AgentConfig } from '../shared/types';
 const state = ref<PublicGame>(),
   connected = ref(false),
   toast = ref(''),
@@ -18,9 +18,7 @@ const state = ref<PublicGame>(),
   draft = ref<AgentConfig[]>([]),
   speed = ref(1800),
   autoNext = ref(true),
-  inspection = ref<PublicGame>(),
-  replay = replaySession,
-  speech = ref(false);
+  replay = replaySession;
 async function setViewpoint(value: string) {
   try {
     await api('control', 'POST', {
@@ -34,12 +32,6 @@ async function setViewpoint(value: string) {
   } catch (e) {
     notify((e as Error).message);
   }
-}
-async function setSpeech(event: Event) {
-  await api('control', 'POST', {
-    action: 'presentation',
-    presentation: { speech: (event.target as HTMLInputElement).checked },
-  });
 }
 async function logout() {
   await api('auth/logout');
@@ -72,7 +64,11 @@ async function api(path: string, method = 'POST', body?: unknown) {
     admin.value = false;
     await router.replace('/login');
   }
-  if (!r.ok) throw Error(json.error ?? '请求失败');
+  if (!r.ok) {
+    const error = Error(json.error ?? '请求失败');
+    Object.assign(error, { providerRequestCount: json.providerRequestCount });
+    throw error;
+  }
   return json;
 }
 async function control(action: string) {
@@ -108,7 +104,6 @@ watch(
   () => route.name,
   (name) => {
     if (name === 'config') fillDraft();
-    if (name === 'inspect') inspect();
   },
 );
 async function save(enter = false) {
@@ -132,9 +127,15 @@ async function test(i: number) {
   pending.value = true;
   try {
     const result = await api('test', 'POST', { ...draft.value[i], seat: i });
-    notify(`连接成功 · ${result.source} · ${result.elapsedMs}ms · ${result.move}`);
+    const calls = result.providerRequestCount
+      ? `真实模型 API 请求 ${result.providerRequestCount} 次`
+      : '本次未调用外部模型';
+    notify(`${calls} · ${result.source} · ${result.elapsedMs}ms · ${result.move}`);
   } catch (e) {
-    notify((e as Error).message);
+    const error = e as Error & { providerRequestCount?: number };
+    if (error.providerRequestCount !== undefined)
+      notify(`${error.message} · 实际模型 API 请求 ${error.providerRequestCount} 次`);
+    else notify(error.message);
   } finally {
     pending.value = false;
   }
@@ -169,52 +170,8 @@ function enableJev(a: AgentConfig, event: Event) {
     keyEnv: a.jev?.keyEnv ?? 'JEV_API_KEY',
   };
 }
-async function inspect() {
-  try {
-    inspection.value = await api('inspect', 'GET');
-    router.push('/studio/replays');
-  } catch (e) {
-    notify((e as Error).message);
-  }
-}
-async function download() {
-  try {
-    const data = await api('replay', 'GET');
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-    );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `guandan-${data.game.id}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    notify((e as Error).message);
-  }
-}
-async function loadReplay(event: Event) {
-  const input = event.target as HTMLInputElement;
-  try {
-    const file = input.files?.[0];
-    if (!file) return;
-    if (file.size > 10e6) throw Error('回放不能超过10MB');
-    const data = JSON.parse(await file.text());
-    if (
-      data.version !== 1 ||
-      !data.initial?.hands ||
-      !Array.isArray(data.game?.history) ||
-      data.agents?.length !== 4
-    )
-      throw Error('回放格式不正确');
-    replay.value = data;
-    router.push('/arena');
-  } catch (e) {
-    notify((e as Error).message);
-  }
-  input.value = '';
-}
 const liveUrl = computed(
-  () => `${location.origin}${sharePath.value}${portrait ? '?layout=portrait' : ''}`,
+  () => `${location.origin}${sharePath.value}`,
 );
 onMounted(() => {
   stream = new EventSource('/api/events');
@@ -222,9 +179,7 @@ onMounted(() => {
     try {
       state.value = JSON.parse(e.data);
       connected.value = true;
-      speech.value = state.value?.presentation?.speech ?? false;
       if (panel.value === 'config' && !draft.value.length) fillDraft();
-      if (panel.value === 'inspect' && !inspection.value) inspect();
     } catch {
       notify('对局数据读取失败');
     }
@@ -240,29 +195,30 @@ onBeforeUnmount(() => {
   <div class="app">
     <aside class="sidebar">
       <a class="brand" href="/studio"
-        >g<span>掼蛋<span class="brand-ai">AI</span></span></a
+        >4<span>AI/4<span class="brand-ai">LAB</span></span></a
       >
-      <div class="workspace-label">竞技工作室</div>
+      <div class="workspace-label">AI 博弈实验中控</div>
       <button @click="logout"><UiIcon name="exit" /> <span>退出登录</span></button>
       <button :class="{ selected: panel === 'lobby' }" @click="router.push('/studio')">
-        <UiIcon name="home" /> <span>赛事大厅</span><small>01</small></button
+        <UiIcon name="home" /> <span>实验总览</span><small>01</small></button
+      ><button :class="{ selected: route.name === 'arena' }" @click="router.push('/arena')">
+        <UiIcon name="live" /> <span>牌桌控制台</span><small>02</small></button
       ><button :class="{ selected: panel === 'config' }" @click="openConfig">
-        <UiIcon name="models" /> <span>模型配置</span><small>02</small></button
+        <UiIcon name="models" /> <span>实验配置</span><small>03</small></button
       ><button :class="{ selected: panel === 'live' }" @click="router.push('/studio/broadcast')">
-        <UiIcon name="live" /> <span>直播工作台</span><small>03</small></button
-      ><button :class="{ selected: panel === 'inspect' }" @click="inspect">
-        <UiIcon name="replay" /> <span>手牌与回放</span><small>04</small>
-      </button>
+        <UiIcon name="live" /> <span>直播输出</span><small>04</small></button
+      ><button :class="{ selected: panel === 'history' }" @click="router.push('/studio/history')">
+        <UiIcon name="analytics" /> <span>历史复盘</span><small>05</small></button>
       <div class="sidebar-bottom">
-        <div class="local-mark">✦ LOCAL FIRST</div>
-        <p>四个模型，一场默契的较量。</p>
+        <div class="local-mark">AI/4 · FIELD STUDY</div>
+        <p>让每次博弈都成为可复核的决策实验。</p>
         <span :class="['connection', connected ? 'online' : '']">{{
           connected ? '裁判服务已连接' : '正在连接裁判服务…'
         }}</span>
       </div>
     </aside>
     <main>
-      <header>
+      <header v-if="panel !== 'lobby' && panel !== 'history'">
         <div>
           <span class="eyebrow">GUANDAN / AI ARENA</span>
           <h1>
@@ -271,9 +227,7 @@ onBeforeUnmount(() => {
                 ? '选手与模型'
                 : panel === 'live'
                   ? '直播工作台'
-                  : panel === 'inspect'
-                    ? '对局实验室'
-                    : '赛事工作室'
+                  : '实时实验总览'
             }}
           </h1>
         </div>
@@ -286,79 +240,12 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </header>
-      <section v-if="panel === 'lobby' && state" class="studio-lobby">
-        <div class="lobby-hero">
-          <div class="hero-art" aria-hidden="true">
-            <div class="hero-table">
-              <span>♠</span><small>FOUR MINDS<br />ONE TABLE</small>
-            </div>
-            <span
-              v-for="(agent, i) in state.agents"
-              :key="i"
-              :class="'hero-seat hero-seat-' + i"
-              :style="{ '--seat-color': colors[i] }"
-              >{{ agent.name.slice(0, 1) }}</span
-            >
-          </div>
-          <span class="eyebrow">GUANDAN / THE CLUB</span>
-          <h2>四种智慧。<br />一桌默契。</h2>
-          <p>
-            配置四位 AI 选手，然后进入独立的全屏牌局。<br />选择一位 AI
-            作为我们，坐在牌桌前感受每一次出牌。
-          </p>
-          <div>
-            <button class="primary" :disabled="pending || !connected" @click="startArena">
-              {{ state.status === 'running' ? '进入正在进行的对局 →' : '开始对局 →' }}</button
-            ><button class="ghost" @click="openConfig">配置选手与节奏</button>
-          </div>
-        </div>
-        <div class="lobby-toolbar">
-          <div>
-            <span class="eyebrow">TABLE SETTINGS</span>
-            <h3>选一个座位，进入这场较量。</h3>
-            <p>四位选手的第一视角，或俯看整张牌桌。</p>
-          </div>
-          <ViewPicker :agents="state.agents" :value="cameraChoice" @change="setViewpoint" />
-        </div>
-        <div class="lobby-seats">
-          <article v-for="(a, i) in state.agents" :key="i" :style="{ '--seat-color': colors[i] }">
-            <span>{{ icons[i] }}</span>
-            <h3>{{ a.name }}</h3>
-            <p>
-              {{ i % 2 === 0 ? '队伍一' : '队伍二' }} · 搭档 {{ state.agents[(i + 2) % 4].name }}
-            </p>
-            <small>{{ a.provider === 'builtin' ? '内置策略' : a.model }}</small>
-          </article>
-        </div>
-        <div class="lobby-metrics">
-          <article>
-            <small>当前赛局</small
-            ><strong
-              >第 {{ String(state.round).padStart(2, '0') }} 局
-              <span>打 {{ rankName(state.level) }}</span></strong
-            >
-          </article>
-          <article>
-            <small>行动节奏</small
-            ><strong>{{ (state.delayMs / 1000).toFixed(1) }} <span>秒 / 次</span></strong>
-          </article>
-          <article>
-            <small>比赛模式</small><strong>{{ state.autoNext ? '连续对局' : '单局演示' }}</strong>
-          </article>
-        </div>
-        <div class="lobby-info">
-          <span>第 {{ state.round }} 局 · 打 {{ rankName(state.level) }}</span
-          ><span>{{
-            state.autoNext ? `连续对局 · 局间庆祝 ${ROUND_CELEBRATION_MS / 1000} 秒` : '单局模式'
-          }}</span
-          ><RouterLink to="/arena">只进入观战画面 ↗</RouterLink>
-          <button :disabled="pending" @click="control('restart')">重新开始比赛</button>
-        </div>
-      </section>
+      <ExperimentDashboard v-if="panel === 'lobby' && state" :game="state" :connected="connected" @control="control" />
+      <HistoryAnalysis v-else-if="panel === 'history'" />
       <section v-else-if="panel === 'config'" class="settings">
         <div class="section-intro">
           <h2>四个座位，四种个性。</h2>
-          <p>每位选手独立决策。API Key 由管理员管理，保存后不会回显；留空保留已有 Key。</p>
+          <p>每位选手独立决策。API Key 由管理员管理，保存后不会回显；留空保留已有 Key。内置策略不请求外部模型，只有成功返回的模型决策会计入模型对局。</p>
         </div>
         <div class="config-grid">
           <article v-for="(a, i) in draft" :key="i" class="config-card">
@@ -378,10 +265,16 @@ onBeforeUnmount(() => {
                   placeholder="https://api.example.com/v1" /></label
               ><label>Model<input v-model="a.model" placeholder="填写服务商实际模型 ID" /></label
               ><label
+                >服务端 Key 环境变量<input
+                  v-model="a.keyEnv"
+                  maxlength="64"
+                  placeholder="MINIMAX_API_KEY"
+                  autocomplete="off" /></label
+              ><label
                 >模型 API Key<input
                   type="password"
                   v-model="a.apiKey"
-                  :placeholder="a.keyConfigured ? '已配置 · 留空保留' : '输入模型 API Key'"
+                  :placeholder="a.keyConfigured ? '已配置 · 留空保留' : '可留空并使用上方环境变量'"
                   autocomplete="off" /></label></template
             ><template v-if="a.provider === 'openai'">
               <label class="check"
@@ -413,14 +306,14 @@ onBeforeUnmount(() => {
         <div class="settings-bottom">
           <ViewPicker :agents="state?.agents ?? []" :value="cameraChoice" @change="setViewpoint" />
           <p class="subtle">
-            解说统一通过音频播放，观众点击开启声音即可。使用自然普通话音色，无需另配 Key。
+            直播页声音由观众本机控制，使用牌桌短句、牌型音效与少量模型战术读局，不调用语音服务。
           </p>
           <label
             >行动间隔<select v-model.number="speed">
               <option :value="600">0.6 秒 · 快速测试</option>
               <option :value="1800">1.8 秒 · 标准</option>
               <option :value="3500">3.5 秒 · 直播</option>
-              <option :value="6000">6 秒 · 解说</option>
+              <option :value="6000">6 秒 · 慢速观察</option>
             </select></label
           ><label class="check"><input type="checkbox" v-model="autoNext" /> 自动进入下一局</label
           ><button class="primary" :disabled="pending" @click="save(false)">保存配置</button
@@ -437,22 +330,21 @@ onBeforeUnmount(() => {
       </section>
       <section v-else-if="panel === 'live'" class="settings">
         <div class="section-intro">
-          <span class="eyebrow">READY FOR YOUR AUDIENCE</span>
-          <h2>把这场较量，带到直播间。</h2>
-          <p>独立直播画面共用同一场对局，隐藏所有控制与凭证配置。</p>
+          <span class="eyebrow">PUBLIC RESEARCH FEED</span>
+          <h2>让观众跟着问题看决策。</h2>
+          <p>公开页呈现实验命题、当下选择、模型返回的战术推测与行为样本，不包含管理控制。</p>
         </div>
         <div class="live-preview">
           <span class="live-tag">BROADCAST OUTPUT</span>
-          <h3>掼蛋 AI 竞技场</h3>
-          <p>4 个 AI · 2 支队伍 · 无限默契</p>
+          <h3>AI 博弈实验直播</h3>
+          <p>决策过程 · 搭档博弈 · 情境观察</p>
           <a class="primary" :href="liveUrl" target="_blank">打开直播画面 ↗</a>
         </div>
         <div class="live-grid">
           <article>
             <h3>01 / 添加画面</h3>
             <p>
-              OBS 新建「浏览器」来源，填写下方 URL，推荐 1920 × 1080、30 FPS。竖屏用 URL 增加
-              ?layout=portrait，设为 1080 × 1920。
+              OBS 新建「浏览器」来源，填写下方 URL。版式会按窗口方向适配；竖屏推流建议 1080 × 1920，横屏移动端建议 1920 × 1080。
             </p>
             <input readonly :value="liveUrl" aria-label="直播画面地址" />
           </article>
@@ -469,53 +361,19 @@ onBeforeUnmount(() => {
             </div>
           </article>
           <article>
-            <h3>03 / 我们的视角与解说</h3>
+            <h3>03 / 观察席与牌桌声音</h3>
             <ViewPicker
               :agents="state?.agents ?? []"
               :value="cameraChoice"
               @change="setViewpoint"
             />
             <p>
-              控制页保持静音，解说开关同步到观众页。观众首次点击开启声音；微信建议使用模型配置中的音频服务解说。
+              观众可在牌桌页自行开启或关闭短喊声与特殊牌型音效。复杂局势的战术推测只在有真实模型输出时播报。
             </p>
-            <label class="check"
-              ><input type="checkbox" :checked="speech" @change="setSpeech" /> 直播页语音解说</label
-            >
           </article>
         </div>
         <p class="subtle">
           此页面准备直播素材；实际开播需要平台账号直播权限及官方工具。同播多个平台需各自授权与编码能力。
-        </p>
-      </section>
-      <section v-else-if="panel === 'inspect'" class="settings">
-        <div class="section-intro">
-          <h2>看清每一步决策。</h2>
-          <p>此处可调试四家手牌。对局观众只看到所选第一视角的手牌，另外三家保持隐藏。</p>
-        </div>
-        <div class="inspect-actions">
-          <button class="primary" @click="inspect">刷新手牌</button
-          ><button class="ghost" @click="download">导出完整回放 ↓</button
-          ><label class="file-button"
-            >导入回放<input type="file" accept="application/json" @change="loadReplay"
-          /></label>
-        </div>
-        <div class="hand-grid">
-          <article v-for="(hand, i) in inspection?.hands" :key="i">
-            <h3 :style="{ color: colors[i] }">
-              {{ inspection?.agents[i].name }} · {{ hand.length }} 张
-            </h3>
-            <div class="cards">
-              <span
-                v-for="c in hand"
-                :key="c.id"
-                :class="{ red: c.suit === 'H' || c.suit === 'D' }"
-                >{{ cardName(c) }}</span
-              >
-            </div>
-          </article>
-        </div>
-        <p class="subtle">
-          完整回放包含全部手牌，适合赛后分析。回放时间轴按本文件中的历史事件展示，不会调用模型。
         </p>
       </section>
       <div v-else class="loading">

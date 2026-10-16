@@ -3,7 +3,7 @@ import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { rankName, type Card, type Entry, type Move } from '../shared/types';
+import { rankName, type Card, type Move, type PublicEntry } from '../shared/types';
 import type { ArenaMood } from './arena-events';
 import type { PlayerAnchor } from './arena-projection';
 import { createRobotBuilder, ROBOT_FACE, type RobotRig } from './arena-robot';
@@ -15,8 +15,8 @@ const props = defineProps<{
   finished: number[];
   hand: Card[];
   counts: number[];
-  entry?: Entry;
-  history: Entry[];
+  entry?: PublicEntry;
+  history: PublicEntry[];
   round: number;
   level: number;
   last: Move | null;
@@ -274,7 +274,7 @@ function clearTable() {
   tablePlays.length = 0;
   played = undefined;
 }
-function playCards(entry: Entry, t: number, settled = false) {
+function playCards(entry: PublicEntry, t: number, settled = false) {
   if (!entry.move || entry.move.kind === 'pass') return;
   const pile = new THREE.Group();
   pile.scale.setScalar(1.3);

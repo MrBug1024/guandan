@@ -5,6 +5,28 @@ import { once } from 'node:events';
 import { decide, jevAdvice, shortlist, observation } from '../server/agents.js';
 import { legalMoves, newGame } from '../server/rules.js';
 import type { AgentConfig } from '../shared/types.js';
+test('built-in decision traces explain the chosen move and limit reads to public signals', async () => {
+  const g = newGame();
+  const config: AgentConfig = {
+    name: '本地策略',
+    provider: 'builtin',
+    model: 'strategy-v1',
+    baseUrl: '',
+    keyEnv: '',
+    personality: '',
+  };
+  const opening = await decide(config, g, legalMoves(g.hands[0], g.level, null));
+  assert.equal(opening.decision.method, 'heuristic');
+  assert.match(opening.decision.rationale, /张手牌|脱手|牌权|让牌/);
+
+  const opposingLead = legalMoves(g.hands[0], g.level, null).find((move) => move.kind !== 'pass')!;
+  g.last = opposingLead;
+  g.lastSeat = 0;
+  g.turn = 1;
+  const response = await decide(config, g, legalMoves(g.hands[1], g.level, opposingLead));
+  assert.match(response.decision.tacticalRead ?? '', /对手刚领出/);
+  assert.match(response.decision.tacticalRead ?? '', /不足以判断/);
+});
 test('OpenAI adapter sends only private self observation and validates choice', async () => {
   let captured: any;
   const server = createServer(async (req, res) => {
@@ -13,7 +35,7 @@ test('OpenAI adapter sends only private self observation and validates choice', 
     captured = { path: req.url, auth: req.headers.authorization, body: JSON.parse(raw) };
     res.setHeader('Content-Type', 'application/json');
     res.end(
-      JSON.stringify({ choices: [{ message: { content: '{"choice":0,"reason":"保持配合"}' } }] }),
+      JSON.stringify({ choices: [{ message: { content: '{"choice":0,"reason":"先让队友把牌权走稳，再用短牌接手。","read":"对手连续让牌，可能在等队友牌权","moment":"tactical"}' } }] }),
     );
   });
   server.listen(0, '127.0.0.1');
@@ -39,7 +61,14 @@ test('OpenAI adapter sends only private self observation and validates choice', 
     assert.equal(prompt.hand.length, 27);
     assert.ok(!prompt.hands);
     assert.ok(prompt.candidates.length <= 41);
-    assert.equal(result.reason, '保持配合');
+    assert.equal(result.reason, '先让队友把牌权走稳，再用短牌接手。');
+    assert.equal(result.decision.method, 'model');
+    assert.equal(result.decision.providerRequestCount, 1);
+    assert.equal(result.decision.candidateSource, 'model-shortlist');
+    assert.equal(result.decision.candidates?.length, result.decision.candidateCount);
+    assert.equal(result.decision.candidates?.[0]?.moveId, result.move.id);
+    assert.equal(result.decision.tacticalRead, '对手连续让牌，可能在等队友牌权');
+    assert.equal(result.decision.moment, 'tactical');
   } finally {
     delete process.env.ARENA_TEST_KEY;
     server.close();

@@ -33,6 +33,19 @@ export function publicState(
   const { hands, ...rest } = game;
   return {
     ...rest,
+    history: game.history.map(({ decision, ...entry }) => ({
+      ...entry,
+      ...(decision
+        ? {
+            decision: {
+              method: decision.method,
+              rationale: decision.rationale,
+              ...(decision.moment ? { moment: decision.moment } : {}),
+              ...(decision.tacticalRead ? { tacticalRead: decision.tacticalRead } : {}),
+            },
+          }
+        : {}),
+    })),
     counts: hands.map((h) => h.length),
     agents: agents.map(safeAgent),
     ...options,
